@@ -30,6 +30,8 @@ for (const [ch, def] of Object.entries(CONSONANTS)) {
       type: s.type,
       closed: !!s.circle,
       points: resample(s.circle ? circlePoints(...s.circle) : s.points.map(([x, y]) => ({ x, y }))),
+      // 정답으로 함께 받아 줄 다른 모양(예: ㅎ 꼭지의 가로형)
+      variants: (s.variants || []).map((v) => resample(v.map(([x, y]) => ({ x, y })))),
     })),
   };
 }
@@ -122,9 +124,14 @@ function compareStroke(user, tpl) {
     }
     return { d: best, reversed };
   }
-  const fwd = meanDist(user, tpl.points);
-  const rev = meanDist([...user].reverse(), tpl.points);
-  return fwd <= rev ? { d: fwd, reversed: false } : { d: rev, reversed: true };
+  let best = null;
+  for (const shape of [tpl.points, ...tpl.variants]) {
+    const fwd = meanDist(user, shape);
+    const rev = meanDist([...user].reverse(), shape);
+    const c = fwd <= rev ? { d: fwd, reversed: false } : { d: rev, reversed: true };
+    if (!best || c.d < best.d) best = c;
+  }
+  return best;
 }
 
 // 거리 → 0~1 점수. 거리가 허용 폭과 같으면 0.5.

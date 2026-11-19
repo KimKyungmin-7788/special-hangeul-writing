@@ -79,6 +79,31 @@ test('checkStroke: 두 번째 획을 먼저 그으면 순서 틀림', () => {
   assert.equal(checkStroke('ㄷ', 0, [...s[0]].reverse()).wrongDirection, true);
 });
 
+// 점 p가 꺾은선 위에 있는지(거리)
+const distToLine = (p, line) => Math.min(...line.slice(1).map((b, i) => {
+  const a = line[i], dx = b[0] - a[0], dy = b[1] - a[1];
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1]);
+}));
+
+test('ㅅ·ㅈ·ㅊ 둘째 내림획은 앞 삐침 위에서 시작한다', async () => {
+  const { CONSONANTS } = await import('../src/strokes-consonants.js');
+  for (const [ch, from, to] of [['ㅅ', 0, 1], ['ㅈ', 0, 1], ['ㅊ', 1, 2]]) {
+    const s = CONSONANTS[ch].strokes;
+    const pts = s[from].points;
+    const slash = [pts[pts.length - 2], pts[pts.length - 1]]; // 삐침 부분만
+    assert.ok(distToLine(s[to].points[0], slash) < 0.02, `${ch}: ${distToLine(s[to].points[0], slash)}`);
+  }
+});
+
+test('ㅎ 꼭지는 짧은 세로·짧은 가로 모두 정답', () => {
+  const s = perfect('ㅎ');
+  const flat = jitter([{ x: 0.4, y: 0.15 }, { x: 0.45, y: 0.15 }, { x: 0.5, y: 0.15 }, { x: 0.55, y: 0.15 }, { x: 0.6, y: 0.15 }]);
+  const r = evaluate('ㅎ', [flat, s[1], s[2]]);
+  assert.ok(r.score >= 90, `${r.score} ${r.issues.map((i) => i.code)}`);
+  assert.equal(r.strokes[0].reversed, false);
+});
+
 test('피드백 문구가 나온다', () => {
   const s = perfect('ㄷ');
   const msgs = feedbackKo(evaluate('ㄷ', [s[1], s[0]]));
