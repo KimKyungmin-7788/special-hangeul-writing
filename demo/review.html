@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>획 데이터 검수표</title>
+<style>
+  :root { --bg: #f6f5f1; --panel: #fff; --ink: #1d2433; --muted: #6b7280; --line: #e3e1da; --accent: #3b5bdb; --good: #2f9e44; --warn: #e8590c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  header { max-width: 1100px; margin: 0 auto; padding: 20px 16px 8px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .grid { max-width: 1100px; margin: 0 auto; padding: 12px 16px 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .card.ok { border-color: var(--good); box-shadow: inset 0 0 0 1px var(--good); }
+  .card.fix { border-color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
+  .title { display: flex; justify-content: space-between; align-items: baseline; }
+  .title b { font-size: 20px; }
+  .title span { color: var(--muted); font-size: 13px; }
+  canvas { width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  ol { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; }
+  .note { font-size: 12px; color: var(--warn); background: #fff4e6; border-radius: 8px; padding: 6px 8px; line-height: 1.5; }
+  .row { display: flex; gap: 6px; }
+  button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 8px 10px; min-height: 38px; cursor: pointer; flex: 1; }
+  button[aria-pressed="true"].v-ok { background: var(--good); border-color: var(--good); color: #fff; }
+  button[aria-pressed="true"].v-fix { background: var(--warn); border-color: var(--warn); color: #fff; }
+  textarea { font: inherit; font-size: 13px; width: 100%; min-height: 54px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; resize: vertical; }
+  footer { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 10px 16px; }
+  footer .in { max-width: 1100px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  footer button { flex: 0 0 auto; background: var(--accent); color: #fff; border-color: var(--accent); }
+  #status { font-size: 14px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>자음 획 데이터 검수표</h1>
+  <p>숫자는 획 순서, 화살표는 긋는 방향입니다. ▶를 누르면 획순이 움직입니다.<br>
+     글자마다 <b>맞음</b> 또는 <b>고칠 곳 있음</b>을 고르고, 고칠 곳은 메모에 적어 주세요. 다 끝나면 아래 <b>검수 결과 복사</b>를 눌러 대화창에 붙여 넣으면 됩니다.</p>
+</header>
+<div class="grid" id="grid"></div>
+<footer><div class="in"><button id="copyBtn">검수 결과 복사</button><span id="status"></span></div></footer>
+
+<script type="module">
+import { listChars, getTemplate } from '../src/engine.js';
+
+const COLORS = ['#3b5bdb', '#e8590c', '#2f9e44', '#ae3ec9'];
+// 제가 교과서 획순과 대조하면서 특히 확인이 필요하다고 본 곳
+const NOTES = {
+  'ㅈ': '첫 획을 "가로 → 왼쪽 아래 삐침" 한 획(2획 체계)으로 넣었습니다. 지도하시는 방식이 "ㅡ + ㅅ"(3획)이면 알려 주세요.',
+  'ㅊ': '꼭지(점)를 짧은 세로로 넣었습니다. 기울기·길이와, 아래를 ㅈ처럼 2획으로 본 점을 확인해 주세요.',
+  'ㅎ': '꼭지를 짧은 세로로 넣었습니다. 가로획과 ㅇ의 크기 비율을 확인해 주세요.',
+  'ㅍ': '가운데 두 세로획을 곧게 넣었습니다. 교과서체처럼 안쪽으로 기울여야 하는지 확인해 주세요.',
+  'ㅌ': '① 위 가로 ② 가운데 가로 ③ ㄴ 순서입니다. 가운데 가로의 길이를 확인해 주세요.',
+  'ㄹ': '① ㄱ ② 가운데 가로 ③ ㄴ 순서입니다. 위·아래 칸 비율을 확인해 주세요.',
+};
+
+const state = {};
+try { Object.assign(state, JSON.parse(localStorage.getItem('stroke-review') || '{}')); } catch {}
+const save = () => { try { localStorage.setItem('stroke-review', JSON.stringify(state)); } catch {} };
+
+function setup(canvas) {
+  const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth;
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(size * dpr, 0, 0, size * dpr, 0, 0);
+  return { ctx, px: 1 / size };
+}
+
+function draw(canvas, ch, upto = Infinity, partial = 1) {
+  const { ctx, px } = setup(canvas);
+  ctx.clearRect(0, 0, 1, 1);
+  ctx.save(); ctx.setLineDash([6 * px, 6 * px]); ctx.strokeStyle = '#e3e1da'; ctx.lineWidth = px;
+  ctx.beginPath(); ctx.moveTo(0.5, 0); ctx.lineTo(0.5, 1); ctx.moveTo(0, 0.5); ctx.lineTo(1, 0.5); ctx.stroke(); ctx.restore();
+
+  getTemplate(ch).strokes.forEach((s, i) => {
+    if (i > upto) return;
+    const color = COLORS[i % COLORS.length];
+    const pts = i === upto ? s.points.slice(0, Math.max(2, Math.ceil(s.points.length * partial))) : s.points;
+    ctx.strokeStyle = color; ctx.lineWidth = 7 * px; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    // 끝 화살표
+    const a = pts[pts.length - 2], b = pts[pts.length - 1];
+    const ang = Math.atan2(b.y - a.y, b.x - a.x), L = 16 * px;
+    ctx.fillStyle = color; ctx.beginPath();
+    ctx.moveTo(b.x + Math.cos(ang) * L * 0.6, b.y + Math.sin(ang) * L * 0.6);
+    ctx.lineTo(b.x + Math.cos(ang + 2.5) * L, b.y + Math.sin(ang + 2.5) * L);
+    ctx.lineTo(b.x + Math.cos(ang - 2.5) * L, b.y + Math.sin(ang - 2.5) * L);
+    ctx.closePath(); ctx.fill();
+    // 시작점 번호
+    const p = s.points[0];
+    ctx.beginPath(); ctx.arc(p.x, p.y, 11 * px, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth;
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${12 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), p.x * size * dpr, p.y * size * dpr + dpr);
+    ctx.restore();
+  });
+}
+
+async function animate(canvas, ch) {
+  const n = getTemplate(ch).strokes.length;
+  for (let i = 0; i < n; i++) {
+    for (let t = 0.05; t <= 1.001; t += 0.05) { draw(canvas, ch, i, t); await new Promise((r) => setTimeout(r, 25)); }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  draw(canvas, ch);
+}
+
+const grid = document.getElementById('grid');
+const cards = [];
+for (const ch of listChars()) {
+  const tpl = getTemplate(ch);
+  const st = (state[ch] ||= { verdict: '', memo: '' });
+  const card = document.createElement('section'); card.className = 'card';
+  card.innerHTML = `
+    <div class="title"><b>${ch} <small>${tpl.name}</small></b><span>${tpl.strokes.length}획</span></div>
+    <canvas aria-label="${tpl.name} 획순 그림"></canvas>
+    <ol>${tpl.strokes.map((s) => `<li>${s.type}</li>`).join('')}</ol>
+    ${NOTES[ch] ? `<div class="note">확인 요청: ${NOTES[ch]}</div>` : ''}
+    <div class="row">
+      <button class="play">▶ 획순</button>
+      <button class="v-ok">맞음</button>
+      <button class="v-fix">고칠 곳 있음</button>
+    </div>
+    <textarea placeholder="고칠 곳 메모 (예: 2획은 더 길게)"></textarea>`;
+  const canvas = card.querySelector('canvas');
+  const ok = card.querySelector('.v-ok'), fix = card.querySelector('.v-fix'), memo = card.querySelector('textarea');
+  memo.value = st.memo;
+  const render = () => {
+    card.className = 'card' + (st.verdict ? ' ' + st.verdict : '');
+    ok.setAttribute('aria-pressed', st.verdict === 'ok');
+    fix.setAttribute('aria-pressed', st.verdict === 'fix');
+    updateStatus();
+  };
+  ok.onclick = () => { st.verdict = 'ok'; save(); render(); };
+  fix.onclick = () => { st.verdict = 'fix'; save(); render(); memo.focus(); };
+  memo.oninput = () => { st.memo = memo.value; save(); };
+  card.querySelector('.play').onclick = () => animate(canvas, ch);
+  grid.append(card);
+  cards.push(() => { draw(canvas, ch); render(); });
+}
+
+function updateStatus() {
+  const all = listChars(), done = all.filter((c) => state[c]?.verdict).length;
+  const fixes = all.filter((c) => state[c]?.verdict === 'fix').length;
+  document.getElementById('status').textContent = `${done}/${all.length} 검수 · 고칠 곳 ${fixes}자`;
+}
+
+function summary() {
+  const lines = ['[획 데이터 검수 결과]'];
+  for (const ch of listChars()) {
+    const s = state[ch];
+    const v = s?.verdict === 'ok' ? '맞음' : s?.verdict === 'fix' ? '고칠 곳 있음' : '미검수';
+    lines.push(`${ch}: ${v}${s?.memo ? ` — ${s.memo.trim()}` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+document.getElementById('copyBtn').onclick = async () => {
+  const text = summary();
+  try { await navigator.clipboard.writeText(text); document.getElementById('status').textContent = '복사했어요. 대화창에 붙여 넣어 주세요.'; }
+  catch { prompt('아래 내용을 복사해 주세요', text); }
+};
+
+const redrawAll = () => cards.forEach((f) => f());
+window.addEventListener('resize', redrawAll);
+redrawAll();
+</script>
+</body>
+</html>

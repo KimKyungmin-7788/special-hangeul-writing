@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>한글 쓰기 엔진 확인</title>
+<style>
+  /* 앱마다 바꿀 디자인 변수 */
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2433; --muted: #6b7280; --line: #e3e1da;
+    --accent: #3b5bdb; --good: #2f9e44; --warn: #e8590c; --bad: #c92a2a;
+    --guide: rgba(59, 91, 219, 0.13); --pen: #1d2433; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; gap: 16px; max-width: 1100px; margin: 0 auto; padding: 16px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: repeat(7, 1fr); } }
+  .cell { position: relative; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 24px; font-weight: 700; color: var(--ink); cursor: pointer; }
+  .cell[aria-current="true"] { border: 2px solid var(--accent); }
+  .cell .badge { position: absolute; top: 3px; right: 4px; font-size: 10px; font-weight: 700; color: #fff; border-radius: 6px; padding: 1px 4px; }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  button.btn, select { font: inherit; font-size: 14px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 9px 14px; min-height: 42px; cursor: pointer; }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label.toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  canvas { width: min(100%, 420px); aspect-ratio: 1; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); touch-action: none; }
+  canvas.shake { animation: shake .3s; }
+  @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  .toast { min-height: 22px; font-size: 15px; color: var(--warn); font-weight: 600; }
+  .score { display: flex; align-items: baseline; gap: 8px; }
+  .score b { font-size: 48px; }
+  .grade { font-size: 18px; font-weight: 700; padding: 2px 8px; border-radius: 8px; color: #fff; }
+  .bar { display: grid; grid-template-columns: 70px 1fr 36px; align-items: center; gap: 8px; font-size: 13px; margin: 6px 0; }
+  .bar i { display: block; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar i span { display: block; height: 100%; background: var(--accent); }
+  ul { padding-left: 18px; margin: 10px 0 0; font-size: 14px; line-height: 1.6; }
+  .empty { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h2>자음 연습 <span id="progress"></span></h2>
+    <div class="grid" id="charGrid"></div>
+  </section>
+
+  <section class="panel stage">
+    <div class="toolbar">
+      <button class="btn" id="animBtn">▶ 획순 보기</button>
+      <button class="btn" id="clearBtn">↺ 다시 쓰기</button>
+      <button class="btn primary" id="doneBtn">다 썼어요</button>
+    </div>
+    <canvas id="pad" width="420" height="420"></canvas>
+    <div class="toast" id="toast" aria-live="polite"></div>
+    <div class="toolbar">
+      <select id="device" aria-label="입력 기기">
+        <option value="finger">손가락 (너그럽게)</option>
+        <option value="pen">펜 (정확하게)</option>
+        <option value="board">전자칠판</option>
+      </select>
+      <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
+      <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
+    </div>
+  </section>
+
+  <section class="panel" id="result"><p class="empty">글자를 쓰고 '다 썼어요'를 누르세요.</p></section>
+</main>
+<script type="module" src="./demo.js"></script>
+</body>
+</html>
