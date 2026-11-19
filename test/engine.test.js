@@ -86,10 +86,9 @@ const distToLine = (p, line) => Math.min(...line.slice(1).map((b, i) => {
   return Math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1]);
 }));
 
-// ㅅ은 최초 모양(둘째 획이 첫 획 오른쪽에서 시작)으로 되돌려 이 검사에서 뺐다
-test('ㅈ·ㅊ 둘째 내림획은 앞 삐침 위에서 시작한다', async () => {
+test('ㅅ·ㅈ·ㅊ 둘째 내림획은 앞 삐침 위에서 시작한다', async () => {
   const { CONSONANTS } = await import('../src/strokes-consonants.js');
-  for (const [ch, from, to] of [['ㅈ', 0, 1], ['ㅊ', 1, 2]]) {
+  for (const [ch, from, to] of [['ㅅ', 0, 1], ['ㅈ', 0, 1], ['ㅊ', 1, 2]]) {
     const s = CONSONANTS[ch].strokes;
     const d = distToLine(s[to].points[0], s[from].points);
     assert.ok(d < 0.02, `${ch}: ${d}`);
