@@ -97,10 +97,28 @@ test('ㅅ·ㅈ·ㅊ 둘째 내림획은 앞 삐침 위에서 시작한다', asyn
 
 test('ㅎ 꼭지는 짧은 세로·짧은 가로 모두 정답', () => {
   const s = perfect('ㅎ');
-  const flat = jitter([{ x: 0.4, y: 0.15 }, { x: 0.45, y: 0.15 }, { x: 0.5, y: 0.15 }, { x: 0.55, y: 0.15 }, { x: 0.6, y: 0.15 }]);
+  const flat = jitter([{ x: 0.4, y: 0.24 }, { x: 0.45, y: 0.24 }, { x: 0.5, y: 0.24 }, { x: 0.55, y: 0.24 }, { x: 0.6, y: 0.24 }]);
   const r = evaluate('ㅎ', [flat, s[1], s[2]]);
   assert.ok(r.score >= 90, `${r.score} ${r.issues.map((i) => i.code)}`);
   assert.equal(r.strokes[0].reversed, false);
+});
+
+// 교사 검수(11/19) 결과를 지키는지
+test('검수 반영: ㅌ 획순, ㅊ·ㅎ 꼭지 간격, ㅅ 기울기·대칭', async () => {
+  const { CONSONANTS: C } = await import('../src/strokes-consonants.js');
+  assert.deepEqual(C['ㅌ'].strokes.map((s) => s.type), ['가로', '꺾임', '가로']);
+  assert.ok(C['ㅌ'].strokes[0].points[0][1] < C['ㅌ'].strokes[2].points[0][1], 'ㅌ 1획은 위 가로');
+  for (const ch of ['ㅊ', 'ㅎ']) {
+    const s = C[ch].strokes;
+    const gap = s[1].points[0][1] - s[0].points[1][1];
+    assert.ok(gap > 0 && gap <= 0.03, `${ch} 꼭지 간격 ${gap}`);
+  }
+  const [a, b] = C['ㅅ'].strokes.map((s) => s.points);
+  const angle = (Math.atan2(a[1][1] - a[0][1], a[0][0] - a[1][0]) * 180) / Math.PI;
+  assert.ok(angle > 57 && angle < 61, `ㅅ 1획 각도 ${angle}`);
+  const lowerLeft = Math.hypot(b[0][0] - a[1][0], b[0][1] - a[1][1]);
+  const right = Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]);
+  assert.ok(Math.abs(lowerLeft - right) < 0.01, `ㅅ 대칭 ${lowerLeft} ${right}`);
 });
 
 test('피드백 문구가 나온다', () => {

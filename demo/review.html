@@ -47,11 +47,12 @@ import { listChars, getTemplate } from '../src/engine.js';
 const COLORS = ['#3b5bdb', '#e8590c', '#2f9e44', '#ae3ec9'];
 // 제가 교과서 획순과 대조하면서 특히 확인이 필요하다고 본 곳
 const NOTES = {
+  'ㅅ': '[검수 반영] 1획을 약 63도에서 59도로 눕히고, 2획은 1획 위 1/3 지점에서 갈라져 갈래 아래 1획과 좌우 대칭이 되게 했습니다.',
   'ㅈ': '2획(가로에서 꺾어 왼쪽 삐침 → 오른쪽 파임)은 여러 자료와 일치합니다. [11/19 수정] 삐침 끝을 왼쪽으로 옮겨 좌우 균형을 맞췄습니다. 삐침이 가로의 오른쪽 끝에서 꺾이는 모양이 맞는지 봐 주세요.',
-  'ㅊ': '꼭지(점)를 짧은 세로로 넣었습니다. 기울기·길이와, 아래를 ㅈ처럼 2획으로 본 점을 확인해 주세요.',
-  'ㅎ': '[11/19 수정] 꼭지는 자료마다 "꼭지"(짧은 세로)와 "위 가로"(짧은 가로)로 달라서 채점은 둘 다 정답으로 받습니다. 안내선에 어느 모양을 보여 줄지 정해 주세요. 꼭지·가로·ㅇ 사이 간격을 좁히고 ㅇ을 조금 키웠습니다.',
+  'ㅊ': '[검수 반영] 꼭지를 내려 아래 가로획에 닿을 듯 말 듯하게 했습니다.',
+  'ㅎ': '[검수 반영] 꼭지를 내려 가로획에 닿을 듯 말 듯하게 했습니다. 짧은 가로 꼭지도 정답으로 받습니다.',
   'ㅍ': '가운데 두 세로획을 곧게 넣었습니다. 교과서체처럼 안쪽으로 기울여야 하는지 확인해 주세요.',
-  'ㅌ': '① 위 가로 ② 가운데 가로 ③ ㄴ 순서입니다. 가운데 가로의 길이를 확인해 주세요.',
+  'ㅌ': '[검수 반영] 획순을 ① 위 가로 ② ㄴ ③ 가운데 가로로 바꿨습니다.',
   'ㄹ': '① ㄱ ② 가운데 가로 ③ ㄴ 순서입니다. 위·아래 칸 비율을 확인해 주세요.',
 };
 
@@ -73,6 +74,7 @@ function draw(canvas, ch, upto = Infinity, partial = 1) {
   ctx.save(); ctx.setLineDash([6 * px, 6 * px]); ctx.strokeStyle = '#e3e1da'; ctx.lineWidth = px;
   ctx.beginPath(); ctx.moveTo(0.5, 0); ctx.lineTo(0.5, 1); ctx.moveTo(0, 0.5); ctx.lineTo(1, 0.5); ctx.stroke(); ctx.restore();
 
+  const labels = []; // 시작점이 겹치는 획 번호는 조금 비켜 그린다
   getTemplate(ch).strokes.forEach((s, i) => {
     if (i > upto) return;
     const color = COLORS[i % COLORS.length];
@@ -90,14 +92,20 @@ function draw(canvas, ch, upto = Infinity, partial = 1) {
     ctx.lineTo(b.x + Math.cos(ang - 2.5) * L, b.y + Math.sin(ang - 2.5) * L);
     ctx.closePath(); ctx.fill();
     // 시작점 번호
-    const p = s.points[0];
-    ctx.beginPath(); ctx.arc(p.x, p.y, 11 * px, 0, Math.PI * 2); ctx.fill();
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth;
-    ctx.fillStyle = '#fff'; ctx.font = `bold ${12 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(i + 1), p.x * size * dpr, p.y * size * dpr + dpr);
-    ctx.restore();
+    const p = { ...s.points[0] };
+    while (labels.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < 22 * px)) { p.x -= 16 * px; p.y += 16 * px; }
+    labels.push({ ...p, color, n: i + 1 });
   });
+  // 번호는 모든 획을 그린 뒤 맨 위에 그려 가려지지 않게 한다
+  const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth;
+  for (const l of labels) {
+    ctx.fillStyle = l.color;
+    ctx.beginPath(); ctx.arc(l.x, l.y, 11 * px, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${12 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(l.n), l.x * size * dpr, l.y * size * dpr + dpr);
+    ctx.restore();
+  }
 }
 
 async function animate(canvas, ch) {

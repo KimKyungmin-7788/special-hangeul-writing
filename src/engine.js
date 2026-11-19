@@ -199,9 +199,28 @@ export function evaluate(char, userStrokes, opts = {}) {
   const tpl = templates[char];
   if (!tpl) throw new Error(`획 데이터가 없는 글자: ${char}`);
   const tol = toleranceOf(opts);
-  const tStrokes = tpl.strokes;
-  const nt = tStrokes.length;
   const user = prepare(userStrokes);
+  // 정답 변형이 있으면 모양 조합마다 따로 채점해 가장 높은 결과를 쓴다
+  // (변형에 따라 글자 테두리 상자가 달라지므로 획 하나만 바꿔 비교하면 안 된다)
+  let best = null;
+  for (const form of concreteForms(tpl.strokes)) {
+    const r = scoreAgainst(char, form, user, tol);
+    if (!best || r.score > best.score) best = r;
+  }
+  return best;
+}
+
+function concreteForms(strokes) {
+  let sets = [[]];
+  for (const s of strokes) {
+    const shapes = [s.points, ...s.variants];
+    sets = sets.flatMap((set) => shapes.map((p) => [...set, { ...s, points: p, variants: [] }]));
+  }
+  return sets.slice(0, 16);
+}
+
+function scoreAgainst(char, tStrokes, user, tol) {
+  const nt = tStrokes.length;
   const nu = user.length;
 
   if (nu === 0) {
