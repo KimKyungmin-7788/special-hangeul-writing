@@ -5,7 +5,7 @@
 ## 범위 (v0.2)
 - 기본 자음 14자 (ㄱ~ㅎ), 모음 21자 (ㅏ~ㅣ, 겹모음 포함)
 - 채점 항목: **획순 10 · 방향 5 · 모양 60 · 자리·크기 25** (합 100). 모양은 평균과 가장 못 쓴 획을 반반 반영
-- 다른 글자를 쓰면 최고 39점(F), 획순이 틀리면 최고 69점(C), 방향이 틀리면 최고 79점(B)
+- 다른 글자를 쓰면 최고 39점(F), 획순이 틀리거나 획을 이어·나눠 쓰면 최고 69점(C), 방향이 틀리면 최고 79점(B)
 - 기기별 허용 폭: `finger`(손가락) · `pen`(펜) · `board`(전자칠판)
 
 ## 파일
@@ -38,7 +38,7 @@ feedbackKo(r);  // ['획 순서가 달라요. ...']
 checkStroke('ㄷ', 0, stroke); // { ok, wrongOrder, wrongDirection, bestIndex }
 ```
 
-문제 코드: `WRONG_CHAR` `EMPTY` `MISSING_STROKE` `EXTRA_STROKE` `WRONG_ORDER` `WRONG_DIRECTION` `TOO_SMALL` `TOO_BIG` `OFF_CENTER` `SHAPE`
+문제 코드: `WRONG_CHAR` `STROKES_JOINED` `STROKE_SPLIT` `EMPTY` `MISSING_STROKE` `EXTRA_STROKE` `WRONG_ORDER` `WRONG_DIRECTION` `TOO_SMALL` `TOO_BIG` `OFF_CENTER` `SHAPE`
 
 ## 확인
 ```bash

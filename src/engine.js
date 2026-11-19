@@ -26,7 +26,11 @@ const SHAPE_STRICTNESS = 0.8;
 const ASPECT_FIT = 0.8;
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
 // (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
-const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, WRONG_DIRECTION: 79 };
+const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, STROKES_JOINED: 69, STROKE_SPLIT: 69, WRONG_DIRECTION: 79 };
+// 전체 모양(챔퍼 거리) 비교의 허용 폭 배율. 챔퍼 거리는 가장 가까운 점끼리 재서 값이 작게 나오므로 더 엄격하게 둔다
+const INK_STRICTNESS = 0.5;
+// 획이 템플릿 획을 '덮었다'고 볼 거리(허용 폭 대비)
+const COVER_RADIUS = 0.6;
 // 다른 글자의 모양 점수가 이만큼 더 높으면 '다른 글자를 썼다'고 본다
 const WRONG_CHAR_MARGIN = 0.2;
 
@@ -219,20 +223,61 @@ export function evaluate(char, userStrokes, opts = {}) {
   const result = scoreBest(tpl, user, tol);
   if (!user.length) return result;
 
-  // 다른 글자 검사: 다른 글자의 모양 점수가 확연히 높으면 글자를 잘못 쓴 것(예: ㅏ 자리에 ㅓ)
+  // 다른 글자 검사: 다른 글자의 전체 모양 점수가 확연히 높으면 글자를 잘못 쓴 것(예: ㅏ 자리에 ㅓ).
+  // 획과 무관한 전체 모양으로 비교해야 이어 쓴 ㅁ을 'ㅇ'으로 오해하지 않는다.
   let look = null;
   for (const other of Object.values(templates)) {
     if (other.char === char) continue;
-    const s = scoreBest(other, user, tol).parts.shape;
+    const s = scoreBest(other, user, tol).inkShape;
     if (!look || s > look.shape) look = { char: other.char, shape: s };
   }
-  if (look && look.shape >= result.parts.shape + WRONG_CHAR_MARGIN) {
+  if (look && look.shape >= result.inkShape + WRONG_CHAR_MARGIN) {
     result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
     result.score = Math.min(result.score, CAPS.WRONG_CHAR);
     result.grade = gradeOf(result.score);
     result.stars = starsOf(result.score);
   }
   return result;
+}
+
+// 선을 일정 간격(칸의 2%)으로 촘촘히 다시 찍는다
+function densify(pts) {
+  return resample(pts, Math.max(2, Math.ceil(pathLength(pts) / 0.02) + 1));
+}
+
+// 두 점 묶음의 챔퍼 거리: 각 점에서 상대 묶음의 가장 가까운 점까지 거리의 평균(양쪽 평균)
+function chamfer(a, b) {
+  const near = (p, q) => q.reduce((m, r) => Math.min(m, dist(p, r)), Infinity);
+  const ab = a.reduce((s, p) => s + near(p, b), 0) / a.length;
+  const ba = b.reduce((s, p) => s + near(p, a), 0) / b.length;
+  return (ab + ba) / 2;
+}
+
+// 템플릿 획 t의 점 가운데 학생 선 u에서 r 안에 있는 비율
+function coverage(t, u, r) {
+  return t.filter((p) => u.some((q) => dist(p, q) <= r)).length / t.length;
+}
+
+// 획 나눔 판정. joined: 학생 획 하나가 템플릿 획 여러 개를 혼자 덮음(이어 씀).
+// split: 템플릿 획 하나를 학생 획 여러 개가 나눠 덮음(나눠 씀).
+function segmentation(tInk, uInk, r) {
+  const FULL = 0.7;
+  const cov = tInk.map((t) => uInk.map((u) => coverage(t, u, r)));
+  const joined = [];
+  uInk.forEach((_, i) => {
+    const covered = tInk.map((_, j) => j)
+      .filter((j) => cov[j][i] >= FULL && !cov[j].some((c, i2) => i2 !== i && c >= FULL));
+    if (covered.length >= 2) joined.push({ userStroke: i, strokes: covered });
+  });
+  const split = [];
+  tInk.forEach((t, j) => {
+    if (cov[j].some((c) => c >= FULL)) return;
+    const parts = cov[j].map((c, i) => [c, i]).filter(([c]) => c >= 0.2).map(([, i]) => i);
+    if (parts.length < 2) return;
+    const union = t.filter((p) => parts.some((i) => uInk[i].some((q) => dist(p, q) <= r))).length / t.length;
+    if (union >= 0.8) split.push({ stroke: j, pieces: parts.length });
+  });
+  return { joined, split };
 }
 
 // 정답 변형이 있으면 모양 조합마다 따로 채점해 가장 높은 결과를 쓴다
@@ -278,6 +323,13 @@ function scoreAgainst(char, tStrokes, user, tol) {
   const kx = Math.pow(k, 1 - ASPECT_FIT) * Math.pow(tb.w / ub.w, ASPECT_FIT);
   const ky = Math.pow(k, 1 - ASPECT_FIT) * Math.pow(tb.h / ub.h, ASPECT_FIT);
   const aligned = user.map((s) => s.map((p) => ({ x: (p.x - ub.cx) * kx + tb.cx, y: (p.y - ub.cy) * ky + tb.cy })));
+  // 2-1) 획과 무관한 전체 모양: 획 수·순서·방향을 빼고 그려진 선 자체를 비교한다.
+  //      이어 쓰기·나눠 쓰기 판정과 다른 글자 판정에 쓴다.
+  const uInk = aligned.map(densify);
+  const tInk = tStrokes.map((t) => densify(t.points));
+  const inkShape = closeness(chamfer(uInk.flat(), tInk.flat()), tol * SHAPE_STRICTNESS * INK_STRICTNESS);
+  const seg = segmentation(tInk, uInk, tol * COVER_RADIUS);
+
   const cmp = tStrokes.map((t) => aligned.map((u) => compareStroke(u, t)));
   const scores = cmp.map((row) => row.map((c) => closeness(c.d, tol * SHAPE_STRICTNESS)));
   const pick = assign(scores, nt, nu);
@@ -293,22 +345,19 @@ function scoreAgainst(char, tStrokes, user, tol) {
   // 평균과 가장 못 쓴 획을 반반 섞는다: 한 획만 크게 틀어져도 글씨 전체가 어색해 보이기 때문
   const strokeScores = strokes.map((s) => s.shape);
   const avg = strokeScores.reduce((a, v) => a + v, 0) / nt;
-  const shape = (0.5 * avg + 0.5 * Math.min(...strokeScores)) * (nt / (nt + extra));
+  let shape = (0.5 * avg + 0.5 * Math.min(...strokeScores)) * (nt / (nt + extra));
 
   // 3) 획순: 학생이 그은 순서대로 늘어놓았을 때 템플릿 번호가 얼마나 차례대로인가
   const byUserOrder = [...matched].sort((a, b) => a.matched - b.matched);
   const mask = lisMask(byUserOrder.map((s) => s.index));
   byUserOrder.forEach((s, n) => { s.inOrder = mask[n]; });
-  const order = matched.length ? mask.filter(Boolean).length / nt : 0;
+  let order = matched.length ? mask.filter(Boolean).length / nt : 0;
 
   // 4) 방향
-  const direction = matched.length ? matched.filter((s) => !s.reversed).length / nt : 0;
-
-  const parts = { order, direction, shape, placement };
-  let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
+  let direction = matched.length ? matched.filter((s) => !s.reversed).length / nt : 0;
 
   // 문제 코드
-  const issues = [];
+  let issues = [];
   const missing = nt - matched.length;
   if (missing > 0) issues.push({ code: 'MISSING_STROKE', count: missing, expected: nt });
   if (extra > 0) issues.push({ code: 'EXTRA_STROKE', count: extra, expected: nt });
@@ -322,9 +371,23 @@ function scoreAgainst(char, tStrokes, user, tol) {
   const worst = matched.reduce((w, s) => (!w || s.shape < w.shape ? s : w), null);
   if (worst && worst.shape < 0.6) issues.push({ code: 'SHAPE', stroke: worst.index });
 
+  // 이어 쓰기·나눠 쓰기: 획끼리 짝이 안 맞아도 전체 모양은 맞는 경우.
+  // 모양은 전체 모양 점수로 매기고, 획 단위 지적(빠짐·더함·순서·방향·모양)은 이 한 가지로 바꾼다.
+  if (seg.joined.length || seg.split.length) {
+    shape = inkShape;
+    order = 0.5;
+    direction = 1;
+    const BY_STROKE = new Set(['MISSING_STROKE', 'EXTRA_STROKE', 'WRONG_ORDER', 'WRONG_DIRECTION', 'SHAPE']);
+    issues = issues.filter((i) => !BY_STROKE.has(i.code));
+    if (seg.joined.length) issues.unshift({ code: 'STROKES_JOINED', joined: seg.joined });
+    else issues.unshift({ code: 'STROKE_SPLIT', split: seg.split });
+  }
+
+  const parts = { order, direction, shape, placement };
+  let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
   for (const it of issues) if (CAPS[it.code] !== undefined) score = Math.min(score, CAPS[it.code]);
 
-  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, strokes, extraStrokes: extra, issues };
+  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, strokes, extraStrokes: extra, issues };
 }
 
 /**

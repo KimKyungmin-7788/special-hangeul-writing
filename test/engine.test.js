@@ -180,6 +180,43 @@ test('교사 채점 표본과 점수가 맞는다', async () => {
   assert.deepEqual(bad, [], '15점 넘게 어긋난 표본');
 });
 
+test('한 붓에 이어 쓰면 STROKES_JOINED, 최고 C, 다른 글자로 보지 않음', () => {
+  const T = (c) => getTemplate(c).strokes.map((s) => s.points);
+  const m = T('ㅁ'), d = T('ㄷ');
+  for (const [ch, st] of [['ㅁ', [...m[0], ...m[2], ...[...m[1]].reverse()]], ['ㄷ', [...[...d[1]].reverse(), ...d[0]]]]) {
+    const r = evaluate(ch, [jitter(st)]);
+    assert.equal(r.issues[0].code, 'STROKES_JOINED', `${ch}: ${codes(r)}`);
+    assert.ok(!codes(r).includes('WRONG_CHAR'), ch);
+    assert.equal(r.grade, 'C');
+    assert.equal(feedbackKo(r)[0], '한 번에 이어서 쓰지 말고, 순서에 맞게 나눠서 쓰세요.');
+  }
+});
+
+test('한 획을 나눠 쓰면 STROKE_SPLIT, 최고 C', () => {
+  const g = getTemplate('ㄱ').strokes[0].points;
+  const r = evaluate('ㄱ', [jitter(g.slice(0, 16)), jitter(g.slice(15))]);
+  assert.equal(r.issues[0].code, 'STROKE_SPLIT', codes(r).join());
+  assert.ok(!codes(r).includes('WRONG_CHAR'));
+  assert.equal(r.grade, 'C');
+  assert.equal(feedbackKo(r)[0], '두 번에 나눠 쓰지 말고 한 번에 써야 해요.');
+});
+
+test('바르게(조금 엉성하게) 쓴 글자는 이어 쓰기·나눠 쓰기로 보지 않는다', async () => {
+  for (const ch of listChars()) for (const a of [0.012, 0.04]) {
+    const r = evaluate(ch, perfect(ch).map((s) => jitter(s, a)));
+    assert.ok(!codes(r).some((c) => c === 'STROKES_JOINED' || c === 'STROKE_SPLIT'), `${ch}(${a}): ${codes(r)}`);
+  }
+  const fs = await import('node:fs');
+  const dir = new URL('./samples/', import.meta.url);
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
+    const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
+    for (const s of data.samples || [data]) {
+      const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+      assert.ok(!codes(r).some((c) => c === 'STROKES_JOINED' || c === 'STROKE_SPLIT'), `${f} ${s.char}: ${codes(r)}`);
+    }
+  }
+});
+
 test('피드백 문구가 나온다', () => {
   const s = perfect('ㄷ');
   const msgs = feedbackKo(evaluate('ㄷ', [s[1], s[0]]));
