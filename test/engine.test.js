@@ -83,9 +83,12 @@ test('낙서는 40점 미만', () => {
   assert.ok(r.score < 40, `${r.score}`);
 });
 
-test('손가락이 펜보다 너그럽다', () => {
+// 교사 표본에서 펜을 더 엄격하게 볼 근거가 없어 펜 = 손가락으로 맞췄다(2026-11-19)
+test('전자칠판이 손가락보다 너그럽고, 펜과 손가락은 같다', () => {
   const s = perfect('ㅅ').map((st) => jitter(st, 0.05));
-  assert.ok(evaluate('ㅅ', s, { device: 'finger' }).score > evaluate('ㅅ', s, { device: 'pen' }).score);
+  const finger = evaluate('ㅅ', s, { device: 'finger' }).score;
+  assert.ok(evaluate('ㅅ', s, { device: 'board' }).score > finger);
+  assert.equal(evaluate('ㅅ', s, { device: 'pen' }).score, finger);
 });
 
 test('checkStroke: 두 번째 획을 먼저 그으면 순서 틀림', () => {

@@ -10,15 +10,20 @@ const N = 32; // 획 하나를 다시 찍을 점 개수
 // 기기별 허용 폭(칸 크기 대비 비율). 클수록 너그럽다.
 export const PRESETS = {
   finger: { tolerance: 0.16 },
-  pen: { tolerance: 0.1 },
+  // 교사 표본(펜 ㄴ 5개)에서 펜을 더 엄격하게 볼 근거가 없어 손가락과 같게 둔다(2026-11-19)
+  pen: { tolerance: 0.16 },
   board: { tolerance: 0.2 },
 };
 
 // 항목별 배점(합 100). 획순·방향은 대부분 맞히므로 점수 상한(CAPS)으로 다루고,
-// 눈에 보이는 글씨 모양과 자리에 배점을 몰아준다(교사 체감 60점 표본으로 맞춤, 2026-11-19).
-const WEIGHTS = { order: 10, direction: 5, shape: 60, placement: 25 };
+// 눈에 보이는 글씨 모양에 배점을 몰아준다. 교사는 칸 안의 위치·크기는 거의 따지지 않았다.
+// (교사 채점 표본 6개로 맞춤, 평균 차이 4.2점, 2026-11-19)
+const WEIGHTS = { order: 10, direction: 5, shape: 75, placement: 10 };
 // 모양 비교의 허용 폭 배율(1보다 작을수록 엄격)
-const SHAPE_STRICTNESS = 0.6;
+const SHAPE_STRICTNESS = 0.8;
+// 모양 비교 전에 가로·세로를 따로 늘려 맞추는 정도(0: 같은 비율로만, 1: 가로세로 비율 무시).
+// 교사는 납작하거나 길쭉한 ㄴ도 모양이 바르면 높게 줬다.
+const ASPECT_FIT = 0.8;
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
 // (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
 const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, WRONG_DIRECTION: 79 };
@@ -270,7 +275,9 @@ function scoreAgainst(char, tStrokes, user, tol) {
 
   // 2) 모양: 학생 글자를 안내 글자 자리·크기에 맞춘 뒤 획끼리 비교
   const k = 1 / size;
-  const aligned = user.map((s) => s.map((p) => ({ x: (p.x - ub.cx) * k + tb.cx, y: (p.y - ub.cy) * k + tb.cy })));
+  const kx = Math.pow(k, 1 - ASPECT_FIT) * Math.pow(tb.w / ub.w, ASPECT_FIT);
+  const ky = Math.pow(k, 1 - ASPECT_FIT) * Math.pow(tb.h / ub.h, ASPECT_FIT);
+  const aligned = user.map((s) => s.map((p) => ({ x: (p.x - ub.cx) * kx + tb.cx, y: (p.y - ub.cy) * ky + tb.cy })));
   const cmp = tStrokes.map((t) => aligned.map((u) => compareStroke(u, t)));
   const scores = cmp.map((row) => row.map((c) => closeness(c.d, tol * SHAPE_STRICTNESS)));
   const pick = assign(scores, nt, nu);
