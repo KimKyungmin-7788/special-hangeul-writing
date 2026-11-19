@@ -14,8 +14,11 @@ export const PRESETS = {
   board: { tolerance: 0.2 },
 };
 
-// 항목별 배점(합 100)
-const WEIGHTS = { order: 25, direction: 15, shape: 40, placement: 20 };
+// 항목별 배점(합 100). 획순·방향은 대부분 맞히므로 점수 상한(CAPS)으로 다루고,
+// 눈에 보이는 글씨 모양과 자리에 배점을 몰아준다(교사 체감 60점 표본으로 맞춤, 2026-11-19).
+const WEIGHTS = { order: 10, direction: 5, shape: 60, placement: 25 };
+// 모양 비교의 허용 폭 배율(1보다 작을수록 엄격)
+const SHAPE_STRICTNESS = 0.6;
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
 // (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
 const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, WRONG_DIRECTION: 79 };
@@ -263,13 +266,13 @@ function scoreAgainst(char, tStrokes, user, tol) {
   const ub = bbox(user);
   const offset = Math.hypot(ub.cx - tb.cx, ub.cy - tb.cy);
   const size = Math.sqrt((ub.w * ub.h) / (tb.w * tb.h));
-  const placement = clamp01(1 - offset / (tol * 2)) * clamp01(1 - Math.abs(Math.log(size)) / Math.log(1.5 + tol * 3));
+  const placement = clamp01(1 - offset / (tol * 1.5)) * clamp01(1 - Math.abs(Math.log(size)) / Math.log(1.3 + tol * 2));
 
   // 2) 모양: 학생 글자를 안내 글자 자리·크기에 맞춘 뒤 획끼리 비교
   const k = 1 / size;
   const aligned = user.map((s) => s.map((p) => ({ x: (p.x - ub.cx) * k + tb.cx, y: (p.y - ub.cy) * k + tb.cy })));
   const cmp = tStrokes.map((t) => aligned.map((u) => compareStroke(u, t)));
-  const scores = cmp.map((row) => row.map((c) => closeness(c.d, tol)));
+  const scores = cmp.map((row) => row.map((c) => closeness(c.d, tol * SHAPE_STRICTNESS)));
   const pick = assign(scores, nt, nu);
 
   const strokes = tStrokes.map((t, j) => {
@@ -280,7 +283,10 @@ function scoreAgainst(char, tStrokes, user, tol) {
   });
   const matched = strokes.filter((s) => s.matched !== -1);
   const extra = nu - matched.length;
-  const shape = (strokes.reduce((a, s) => a + s.shape, 0) / nt) * (nt / (nt + extra));
+  // 평균과 가장 못 쓴 획을 반반 섞는다: 한 획만 크게 틀어져도 글씨 전체가 어색해 보이기 때문
+  const strokeScores = strokes.map((s) => s.shape);
+  const avg = strokeScores.reduce((a, v) => a + v, 0) / nt;
+  const shape = (0.5 * avg + 0.5 * Math.min(...strokeScores)) * (nt / (nt + extra));
 
   // 3) 획순: 학생이 그은 순서대로 늘어놓았을 때 템플릿 번호가 얼마나 차례대로인가
   const byUserOrder = [...matched].sort((a, b) => a.matched - b.matched);

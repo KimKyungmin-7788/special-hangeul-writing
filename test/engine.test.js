@@ -157,6 +157,17 @@ test('엉성해도 맞는 글자는 WRONG_CHAR가 아니다', () => {
   }
 });
 
+// 교사 체감 점수 표본: 엔진 점수가 교사 점수 ±8 안에 들어야 한다
+test('교사 채점 표본과 점수가 맞는다', async () => {
+  const fs = await import('node:fs');
+  const dir = new URL('./samples/', import.meta.url);
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
+    const s = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
+    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))));
+    assert.ok(Math.abs(r.score - s.teacherScore) <= 8, `${f}: 엔진 ${r.score}, 교사 ${s.teacherScore}`);
+  }
+});
+
 test('피드백 문구가 나온다', () => {
   const s = perfect('ㄷ');
   const msgs = feedbackKo(evaluate('ㄷ', [s[1], s[0]]));
