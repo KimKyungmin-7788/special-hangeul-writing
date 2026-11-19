@@ -217,6 +217,30 @@ test('바르게(조금 엉성하게) 쓴 글자는 이어 쓰기·나눠 쓰기�
   }
 });
 
+test('획이 접점을 넘어가면 OVERSHOOT, 크게 감점', () => {
+  // ㅔ: 짧은 가로가 첫 세로를 뚫고 둘째 세로까지 감
+  const e = perfect('ㅔ');
+  e[0] = jitter([{ x: 0.27, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.73, y: 0.5 }]);
+  const r = evaluate('ㅔ', e);
+  const it = r.issues.find((i) => i.code === 'OVERSHOOT');
+  assert.ok(it, codes(r).join());
+  assert.equal(it.stroke, 0);
+  assert.equal(it.into, 1);
+  assert.ok(r.score <= 45, `${r.score}`);
+  assert.equal(feedbackKo(r)[0], '1번째 획이 2번째 획을 넘어갔어요. 닿는 곳에서 멈춰요.');
+  // ㅛ: 세로가 가로획 아래로 뚫고 내려감
+  const y = perfect('ㅛ');
+  y[1] = jitter([{ x: 0.62, y: 0.32 }, { x: 0.62, y: 0.58 }, { x: 0.62, y: 0.75 }]);
+  assert.ok(codes(evaluate('ㅛ', y)).includes('OVERSHOOT'));
+});
+
+test('바르게(조금 엉성하게) 쓴 글자는 OVERSHOOT로 보지 않는다', () => {
+  for (const ch of listChars()) for (const a of [0.012, 0.03]) {
+    const r = evaluate(ch, perfect(ch).map((s) => jitter(s, a)));
+    assert.ok(!codes(r).includes('OVERSHOOT'), `${ch}(${a}): ${JSON.stringify(r.issues)}`);
+  }
+});
+
 test('피드백 문구가 나온다', () => {
   const s = perfect('ㄷ');
   const msgs = feedbackKo(evaluate('ㄷ', [s[1], s[0]]));

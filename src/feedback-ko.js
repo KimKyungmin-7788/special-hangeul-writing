@@ -27,6 +27,7 @@ export function feedbackKo(result) {
     switch (it.code) {
       case 'EMPTY': msgs.push('칸 안에 글자를 써 봐요.'); break;
       case 'WRONG_CHAR': msgs.push(`'${it.looksLike}'처럼 보여요. '${result.char}'를 써 봐요. '획순 보기'로 모양을 확인해요.`); break;
+      case 'OVERSHOOT': msgs.push(`${nth(it.stroke)}이 ${it.into + 1}번째 획을 넘어갔어요. 닿는 곳에서 멈춰요.`); break;
       case 'STROKES_JOINED': msgs.push('한 번에 이어서 쓰지 말고, 순서에 맞게 나눠서 쓰세요.'); break;
       case 'STROKE_SPLIT': {
         const pieces = Math.max(...it.split.map((s) => s.pieces));
