@@ -157,15 +157,24 @@ test('엉성해도 맞는 글자는 WRONG_CHAR가 아니다', () => {
   }
 });
 
-// 교사 체감 점수 표본: 엔진 점수가 교사 점수 ±8 안에 들어야 한다
+// 교사 체감 점수 표본(test/samples/*.json): 표본 하나짜리 파일과 연습 화면에서 내려받은 묶음 파일 모두 읽는다.
+// 기준: 평균 차이 8점 이하, 하나하나는 15점 이하
 test('교사 채점 표본과 점수가 맞는다', async () => {
   const fs = await import('node:fs');
   const dir = new URL('./samples/', import.meta.url);
+  const all = [];
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
-    const s = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
-    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))));
-    assert.ok(Math.abs(r.score - s.teacherScore) <= 8, `${f}: 엔진 ${r.score}, 교사 ${s.teacherScore}`);
+    const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
+    for (const [k, s] of (data.samples || [data]).entries()) all.push({ id: `${f}#${k}`, ...s });
   }
+  const diffs = all.map((s) => {
+    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+    return { id: s.id, char: s.char, engine: r.score, teacher: s.teacherScore, d: r.score - s.teacherScore };
+  });
+  const mae = diffs.reduce((a, x) => a + Math.abs(x.d), 0) / diffs.length;
+  const bad = diffs.filter((x) => Math.abs(x.d) > 15).map((x) => `${x.id} ${x.char}: 엔진 ${x.engine} / 교사 ${x.teacher}`);
+  assert.ok(mae <= 8, `표본 ${diffs.length}개 평균 차이 ${mae.toFixed(1)}점`);
+  assert.deepEqual(bad, [], '15점 넘게 어긋난 표본');
 });
 
 test('피드백 문구가 나온다', () => {

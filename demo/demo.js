@@ -161,8 +161,100 @@ function score() {
   const ul = document.createElement('ul');
   for (const m of feedbackKo(r)) { const li = document.createElement('li'); li.textContent = m; ul.append(li); }
   el.append(ul);
+  if (strokes.length) el.append(calibForm(r));
   renderGrid();
   console.log('채점 결과', r);
+}
+
+// ---------- 교사 점수 표본 모으기 (채점 보정용) ----------
+// 글씨 좌표와 선생님 점수만 저장한다. 학생 이름 같은 개인정보는 받지 않는다.
+// 저장 위치는 이 브라우저(localStorage)뿐이며, '내려받기'로 파일을 만들어 test/samples/에 넣는다.
+const SAMPLE_KEY = 'hw-calibration-samples';
+let samples = [];
+try { samples = JSON.parse(localStorage.getItem(SAMPLE_KEY) || '[]'); } catch { samples = []; }
+const persist = () => { try { localStorage.setItem(SAMPLE_KEY, JSON.stringify(samples)); } catch {} };
+const round3 = (v) => Math.round(v * 1000) / 1000;
+const toPoints = (s) => s.map((st) => st.map(([x, y]) => ({ x, y })));
+const TOLERANCE = 8; // 엔진과 선생님 점수 차이 허용 범위
+
+function calibForm(r) {
+  const box = document.createElement('div'); box.className = 'calib';
+  box.innerHTML = `
+    <label for="teacherScore">선생님이 본 점수</label>
+    <div class="calib-row">
+      <input id="teacherScore" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0~100">
+      <button class="btn" id="saveSample">표본 저장</button>
+    </div>
+    <p class="calib-msg" aria-live="polite">엔진 ${r.score}점과 다르게 느껴지면 선생님 점수를 넣어 저장하세요.</p>`;
+  const input = box.querySelector('input'), msg = box.querySelector('.calib-msg');
+  box.querySelector('#saveSample').onclick = () => {
+    const v = Number(input.value);
+    if (input.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; input.focus(); return; }
+    samples.push({
+      char: current, teacherScore: v, device: $('device').value, engineScoreAtSave: r.score,
+      strokes: strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
+      savedAt: new Date().toISOString(),
+    });
+    persist(); renderSamples();
+    msg.textContent = `저장했어요. (선생님 ${v}점 · 엔진 ${r.score}점) 모은 표본 ${samples.length}개`;
+  };
+  return box;
+}
+
+function renderSamples() {
+  const el = $('samples');
+  el.replaceChildren();
+  const h = document.createElement('h2'); h.textContent = `모은 채점 표본 ${samples.length}개`; el.append(h);
+  if (!samples.length) {
+    const p = document.createElement('p'); p.className = 'empty';
+    p.textContent = '채점한 뒤 오른쪽에 선생님 점수를 넣고 저장하면 여기에 쌓입니다. 20개쯤 모이면 엔진 점수를 다시 맞출 수 있어요.';
+    el.append(p); return;
+  }
+  const rows = samples.map((s, i) => {
+    const now = evaluate(s.char, toPoints(s.strokes), { device: s.device }).score;
+    return { i, s, now, diff: now - s.teacherScore };
+  });
+  const mae = rows.reduce((a, r) => a + Math.abs(r.diff), 0) / rows.length;
+  const off = rows.filter((r) => Math.abs(r.diff) > TOLERANCE).length;
+  const sum = document.createElement('p'); sum.className = 'calib-sum';
+  sum.textContent = `평균 차이 ${mae.toFixed(1)}점 · ±${TOLERANCE}점을 벗어난 표본 ${off}개`;
+  el.append(sum);
+
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>글자</th><th>선생님</th><th>엔진(지금)</th><th>차이</th><th>기기</th><th></th></tr></thead>';
+  const tb = document.createElement('tbody');
+  for (const r of [...rows].reverse()) {
+    const tr = document.createElement('tr');
+    if (Math.abs(r.diff) > TOLERANCE) tr.className = 'off';
+    tr.innerHTML = `<td>${r.s.char}</td><td>${r.s.teacherScore}</td><td>${r.now}</td><td>${r.diff > 0 ? '+' : ''}${r.diff}</td><td>${{ finger: '손가락', pen: '펜', board: '전자칠판' }[r.s.device] || r.s.device}</td>`;
+    const td = document.createElement('td');
+    const del = document.createElement('button'); del.className = 'btn small'; del.textContent = '삭제';
+    del.setAttribute('aria-label', `${r.s.char} 표본 삭제`);
+    del.onclick = () => { samples.splice(r.i, 1); persist(); renderSamples(); };
+    td.append(del); tr.append(td); tb.append(tr);
+  }
+  table.append(tb); el.append(table);
+
+  const bar = document.createElement('div'); bar.className = 'toolbar';
+  const dl = document.createElement('button'); dl.className = 'btn primary'; dl.textContent = '표본 내려받기 (.json)';
+  dl.onclick = downloadSamples;
+  const clear = document.createElement('button'); clear.className = 'btn'; clear.textContent = '모두 지우기';
+  clear.onclick = () => { if (confirm(`표본 ${samples.length}개를 모두 지울까요? 되돌릴 수 없어요.`)) { samples = []; persist(); renderSamples(); } };
+  bar.append(dl, clear); el.append(bar);
+  const hint = document.createElement('p'); hint.className = 'empty';
+  hint.textContent = '내려받은 파일을 프로젝트의 test/samples/ 폴더에 넣으면 npm test가 엔진 점수와 선생님 점수 차이를 검사합니다.';
+  el.append(hint);
+}
+
+function downloadSamples() {
+  const d = new Date(), pad = (n) => String(n).padStart(2, '0');
+  const name = `samples-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  // 표본 하나를 한 줄로 써서 파일을 짧고 git 비교하기 쉽게
+  const body = `{"version":1,"exportedAt":${JSON.stringify(d.toISOString())},"samples":[\n${samples.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // ---------- 글자 목록 ----------
@@ -207,6 +299,7 @@ $('guideOn').onchange = redraw;
 window.addEventListener('resize', fitCanvas);
 
 renderGrid();
+renderSamples();
 fitCanvas();
 
 // 브라우저 콘솔에서 자동 확인할 때 쓰는 손잡이
