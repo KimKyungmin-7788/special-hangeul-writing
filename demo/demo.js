@@ -6,7 +6,9 @@ const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-const chars = listChars();
+const GROUP_NAME = { consonant: '자음', vowel: '모음' };
+let group = 'consonant';
+let chars = listChars(group);
 const best = {}; // 글자별 최고 점수(이 화면에서만, 저장 안 함)
 let current = chars[0];
 let strokes = [];   // 확정된 획들 (0~1 좌표)
@@ -181,8 +183,14 @@ function renderGrid() {
     b.onclick = () => select(ch);
     grid.append(b);
   }
-  $('progress').textContent = `${Object.keys(best).length}/${chars.length}`;
+  $('progress').textContent = `${chars.filter((c) => best[c] != null).length}/${chars.length}`;
+  $('groupName').textContent = GROUP_NAME[group];
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', t.dataset.group === group));
 }
+
+document.querySelectorAll('.tab').forEach((t) => {
+  t.onclick = () => { group = t.dataset.group; chars = listChars(group); select(chars[0]); };
+});
 
 function select(ch) {
   current = ch; strokes = []; toast('');

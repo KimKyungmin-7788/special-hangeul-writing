@@ -10,11 +10,30 @@ const jitter = (s, amt = 0.012) => s.map((p, i) => ({ x: p.x + Math.sin(i * 1.7)
 const perfect = (ch) => getTemplate(ch).strokes.map((s) => jitter(s.points));
 const codes = (r) => r.issues.map((i) => i.code);
 
-test('자음 14자가 모두 있다', () => {
-  assert.equal(listChars().length, 14);
+test('자음 14자, 모음 21자가 모두 있다', () => {
+  assert.equal(listChars('consonant').length, 14);
+  assert.equal(listChars('vowel').length, 21);
+  assert.equal(listChars().length, 35);
 });
 
-test('바르게 쓴 자음은 모두 90점 이상', () => {
+test('모음 획은 가로는 왼→오, 세로는 위→아래', async () => {
+  const { VOWELS } = await import('../src/strokes-vowels.js');
+  for (const [ch, def] of Object.entries(VOWELS)) for (const s of def.strokes) {
+    const [[x1, y1], [x2, y2]] = s.points;
+    if (s.type === '가로') assert.ok(x2 > x1 && y1 === y2, `${ch} 가로`);
+    else assert.ok(y2 > y1 && x1 === x2, `${ch} 세로`);
+  }
+});
+
+test('모음 획순: ㅏ는 ㅣ 먼저, ㅓ는 가로 먼저, ㅘ는 ㅗ 다 쓰고 ㅏ', () => {
+  const types = (ch) => getTemplate(ch).strokes.map((s) => s.type).join(',');
+  assert.equal(types('ㅏ'), '세로,가로');
+  assert.equal(types('ㅓ'), '가로,세로');
+  assert.equal(types('ㅘ'), '세로,가로,세로,가로');
+  assert.equal(types('ㅝ'), '가로,세로,가로,세로');
+});
+
+test('바르게 쓴 자음·모음은 모두 90점 이상', () => {
   for (const ch of listChars()) {
     const r = evaluate(ch, perfect(ch));
     assert.ok(r.score >= 90, `${ch}: ${r.score} ${JSON.stringify(r.parts)}`);
@@ -119,6 +138,23 @@ test('검수 반영: ㅌ 획순, ㅊ·ㅎ 꼭지 간격, ㅅ 기울기·대칭',
   const lowerLeft = Math.hypot(b[0][0] - a[1][0], b[0][1] - a[1][1]);
   const right = Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1]);
   assert.ok(Math.abs(lowerLeft - right) < 0.01, `ㅅ 대칭 ${lowerLeft} ${right}`);
+});
+
+test('다른 글자를 쓰면 WRONG_CHAR, F', () => {
+  for (const [target, written] of [['ㅏ', 'ㅓ'], ['ㅗ', 'ㅜ'], ['ㅐ', 'ㅔ'], ['ㄱ', 'ㄴ']]) {
+    const r = evaluate(target, perfect(written));
+    const it = r.issues.find((i) => i.code === 'WRONG_CHAR');
+    assert.ok(it, `${target}←${written}: ${r.issues.map((i) => i.code)}`);
+    assert.equal(it.looksLike, written);
+    assert.equal(r.grade, 'F');
+  }
+});
+
+test('엉성해도 맞는 글자는 WRONG_CHAR가 아니다', () => {
+  for (const ch of listChars()) {
+    const r = evaluate(ch, perfect(ch).map((s) => jitter(s, 0.04)));
+    assert.ok(!codes(r).includes('WRONG_CHAR'), `${ch}: ${r.issues[0]?.looksLike}`);
+  }
 });
 
 test('피드백 문구가 나온다', () => {

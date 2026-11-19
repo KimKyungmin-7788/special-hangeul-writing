@@ -3,6 +3,7 @@
 // 출력: 점수(0~100)와 세부 항목, 문제 코드(issues). 문구·소리·화면은 앱이 정한다.
 
 import { CONSONANTS } from './strokes-consonants.js';
+import { VOWELS } from './strokes-vowels.js';
 
 const N = 32; // 획 하나를 다시 찍을 점 개수
 
@@ -16,16 +17,20 @@ export const PRESETS = {
 // 항목별 배점(합 100)
 const WEIGHTS = { order: 25, direction: 15, shape: 40, placement: 20 };
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
-// (획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
-const CAPS = { WRONG_ORDER: 69, WRONG_DIRECTION: 79 };
+// (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
+const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, WRONG_DIRECTION: 79 };
+// 다른 글자의 모양 점수가 이만큼 더 높으면 '다른 글자를 썼다'고 본다
+const WRONG_CHAR_MARGIN = 0.2;
 
 // ---------- 템플릿 ----------
 
 const templates = {};
-for (const [ch, def] of Object.entries(CONSONANTS)) {
+const GROUPS = { consonant: CONSONANTS, vowel: VOWELS };
+for (const [group, defs] of Object.entries(GROUPS)) for (const [ch, def] of Object.entries(defs)) {
   templates[ch] = {
     char: ch,
     name: def.name,
+    group,
     strokes: def.strokes.map((s) => ({
       type: s.type,
       closed: !!s.circle,
@@ -36,7 +41,10 @@ for (const [ch, def] of Object.entries(CONSONANTS)) {
   };
 }
 
-export function listChars() { return Object.keys(templates); }
+/** @param {'consonant'|'vowel'} [group] 생략하면 전체 */
+export function listChars(group) {
+  return Object.keys(templates).filter((ch) => !group || templates[ch].group === group);
+}
 export function getTemplate(ch) { return templates[ch] || null; }
 
 function circlePoints(cx, cy, r) {
@@ -200,11 +208,31 @@ export function evaluate(char, userStrokes, opts = {}) {
   if (!tpl) throw new Error(`획 데이터가 없는 글자: ${char}`);
   const tol = toleranceOf(opts);
   const user = prepare(userStrokes);
-  // 정답 변형이 있으면 모양 조합마다 따로 채점해 가장 높은 결과를 쓴다
-  // (변형에 따라 글자 테두리 상자가 달라지므로 획 하나만 바꿔 비교하면 안 된다)
+  const result = scoreBest(tpl, user, tol);
+  if (!user.length) return result;
+
+  // 다른 글자 검사: 다른 글자의 모양 점수가 확연히 높으면 글자를 잘못 쓴 것(예: ㅏ 자리에 ㅓ)
+  let look = null;
+  for (const other of Object.values(templates)) {
+    if (other.char === char) continue;
+    const s = scoreBest(other, user, tol).parts.shape;
+    if (!look || s > look.shape) look = { char: other.char, shape: s };
+  }
+  if (look && look.shape >= result.parts.shape + WRONG_CHAR_MARGIN) {
+    result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
+    result.score = Math.min(result.score, CAPS.WRONG_CHAR);
+    result.grade = gradeOf(result.score);
+    result.stars = starsOf(result.score);
+  }
+  return result;
+}
+
+// 정답 변형이 있으면 모양 조합마다 따로 채점해 가장 높은 결과를 쓴다
+// (변형에 따라 글자 테두리 상자가 달라지므로 획 하나만 바꿔 비교하면 안 된다)
+function scoreBest(tpl, user, tol) {
   let best = null;
   for (const form of concreteForms(tpl.strokes)) {
-    const r = scoreAgainst(char, form, user, tol);
+    const r = scoreAgainst(tpl.char, form, user, tol);
     if (!best || r.score > best.score) best = r;
   }
   return best;

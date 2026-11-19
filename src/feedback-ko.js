@@ -18,9 +18,14 @@ export function feedbackKo(result) {
   const tpl = getTemplate(result.char);
   const n = tpl.strokes.length;
   const msgs = [];
-  for (const it of result.issues) {
+  // 다른 글자를 썼으면 세부 지적은 빼고 그것만 알려 준다
+  const issues = result.issues.some((i) => i.code === 'WRONG_CHAR')
+    ? result.issues.filter((i) => i.code === 'WRONG_CHAR')
+    : result.issues;
+  for (const it of issues) {
     switch (it.code) {
       case 'EMPTY': msgs.push('칸 안에 글자를 써 봐요.'); break;
+      case 'WRONG_CHAR': msgs.push(`'${it.looksLike}'처럼 보여요. '${result.char}'를 써 봐요. '획순 보기'로 모양을 확인해요.`); break;
       case 'MISSING_STROKE': msgs.push(`획이 ${it.count}개 빠졌어요. ${result.char}은(는) ${n}획이에요.`); break;
       case 'EXTRA_STROKE': msgs.push(`획을 ${it.count}번 더 그었어요. ${result.char}은(는) ${n}획이에요.`); break;
       case 'WRONG_ORDER': msgs.push(`획 순서가 달라요. '획순 보기'로 1번 획부터 차례대로 확인해 봐요.`); break;
