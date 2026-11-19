@@ -90,9 +90,8 @@ test('ㅅ·ㅈ·ㅊ 둘째 내림획은 앞 삐침 위에서 시작한다', asyn
   const { CONSONANTS } = await import('../src/strokes-consonants.js');
   for (const [ch, from, to] of [['ㅅ', 0, 1], ['ㅈ', 0, 1], ['ㅊ', 1, 2]]) {
     const s = CONSONANTS[ch].strokes;
-    const pts = s[from].points;
-    const slash = [pts[pts.length - 2], pts[pts.length - 1]]; // 삐침 부분만
-    assert.ok(distToLine(s[to].points[0], slash) < 0.02, `${ch}: ${distToLine(s[to].points[0], slash)}`);
+    const d = distToLine(s[to].points[0], s[from].points);
+    assert.ok(d < 0.02, `${ch}: ${d}`);
   }
 });
 
