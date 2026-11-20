@@ -44,6 +44,7 @@
 
 <script type="module">
 import { listChars, getTemplate } from '../src/engine.js';
+import { copyText } from './copy.js';
 
 const COLORS = ['#3b5bdb', '#e8590c', '#2f9e44', '#ae3ec9'];
 // 제가 교과서 획순과 대조하면서 특히 확인이 필요하다고 본 곳
@@ -190,8 +191,7 @@ function summary() {
 
 document.getElementById('copyBtn').onclick = async () => {
   const text = summary();
-  try { await navigator.clipboard.writeText(text); document.getElementById('status').textContent = '복사했어요. 대화창에 붙여 넣어 주세요.'; }
-  catch { prompt('아래 내용을 복사해 주세요', text); }
+  if (await copyText(text)) document.getElementById('status').textContent = '복사했어요. 맥북 대화창에 붙여 넣어 주세요.';
 };
 
 const redrawAll = () => cards.forEach((f) => f());

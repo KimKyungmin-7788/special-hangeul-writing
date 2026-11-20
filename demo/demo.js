@@ -1,6 +1,7 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
 import { feedbackKo } from '../src/feedback-ko.js';
+import { copyText } from './copy.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
@@ -66,21 +67,31 @@ function toPoint(e) {
   return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
 }
 
+let activePointer = null; // 지금 획을 긋고 있는 손가락·펜(동시에 하나만 받는다)
 pad.addEventListener('pointerdown', (e) => {
-  if (animating) return;
-  pad.setPointerCapture(e.pointerId);
+  if (animating || drawing) return;
+  // 펜슬만 받기: 펜슬로 쓰는 동안 손바닥·손가락 터치가 획으로 들어가지 않게 한다
+  if ($('penOnly').checked && e.pointerType !== 'pen') return;
+  e.preventDefault();
+  activePointer = e.pointerId;
+  try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
   drawing = [toPoint(e)];
   scratch.start();
 });
 pad.addEventListener('pointermove', (e) => {
-  if (!drawing) return;
-  const p = toPoint(e), last = drawing[drawing.length - 1];
-  scratch.speed(Math.hypot(p.x - last.x, p.y - last.y));
-  drawing.push(p);
+  if (!drawing || e.pointerId !== activePointer) return;
+  // 펜슬은 화면 갱신보다 촘촘하게 점을 보내므로, 브라우저가 묶어 둔 점까지 모두 받는다
+  const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+  for (const ev of events.length ? events : [e]) {
+    const p = toPoint(ev), last = drawing[drawing.length - 1];
+    scratch.speed(Math.hypot(p.x - last.x, p.y - last.y));
+    drawing.push(p);
+  }
   redraw();
 });
-function endStroke() {
-  if (!drawing) return;
+function endStroke(e) {
+  if (!drawing || (e && e.pointerId !== activePointer)) return;
+  activePointer = null;
   scratch.stop();
   const s = drawing; drawing = null;
   if ($('guided').checked) {
@@ -238,19 +249,26 @@ function renderSamples() {
   const bar = document.createElement('div'); bar.className = 'toolbar';
   const dl = document.createElement('button'); dl.className = 'btn primary'; dl.textContent = '표본 내려받기 (.json)';
   dl.onclick = downloadSamples;
+  // 아이패드: 복사하면 같은 Apple ID 맥북에서 바로 붙여 넣을 수 있다(유니버설 클립보드)
+  const cp = document.createElement('button'); cp.className = 'btn'; cp.textContent = '표본 복사';
+  cp.onclick = async () => { if (await copyText(samplesFileText())) cp.textContent = '복사했어요'; setTimeout(() => { cp.textContent = '표본 복사'; }, 2000); };
   const clear = document.createElement('button'); clear.className = 'btn'; clear.textContent = '모두 지우기';
   clear.onclick = () => { if (confirm(`표본 ${samples.length}개를 모두 지울까요? 되돌릴 수 없어요.`)) { samples = []; persist(); renderSamples(); } };
-  bar.append(dl, clear); el.append(bar);
+  bar.append(dl, cp, clear); el.append(bar);
   const hint = document.createElement('p'); hint.className = 'empty';
   hint.textContent = '내려받은 파일을 프로젝트의 test/samples/ 폴더에 넣으면 npm test가 엔진 점수와 선생님 점수 차이를 검사합니다.';
   el.append(hint);
 }
 
+// 표본 하나를 한 줄로 써서 파일을 짧고 git 비교하기 쉽게
+function samplesFileText(d = new Date()) {
+  return `{"version":1,"exportedAt":${JSON.stringify(d.toISOString())},"samples":[\n${samples.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`;
+}
+
 function downloadSamples() {
   const d = new Date(), pad = (n) => String(n).padStart(2, '0');
   const name = `samples-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
-  // 표본 하나를 한 줄로 써서 파일을 짧고 git 비교하기 쉽게
-  const body = `{"version":1,"exportedAt":${JSON.stringify(d.toISOString())},"samples":[\n${samples.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`;
+  const body = samplesFileText(d);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
   a.download = name; a.click();
@@ -296,6 +314,12 @@ $('animBtn').onclick = animate;
 $('clearBtn').onclick = () => { strokes = []; toast(''); redraw(); };
 $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
+// 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
+for (const id of ['penOnly', 'device']) {
+  const el = $(id), key = 'hw-pref-' + id;
+  try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
+  el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
+}
 window.addEventListener('resize', fitCanvas);
 
 renderGrid();
