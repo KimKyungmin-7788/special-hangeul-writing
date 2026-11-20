@@ -3,7 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>한글 쓰기 엔진 확인</title>
+<title>한글 쓰기 연습</title>
+<meta name="description" content="자음·모음을 손가락이나 펜으로 따라 쓰면 획순·방향·모양을 채점하고 고칠 점을 알려 주는 한글 쓰기 연습 도구예요. 선생님 점수를 모아 채점을 맞춰 가요.">
+<link rel="canonical" href="https://hangeul.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="한글 쓰기 연습">
+<meta property="og:title" content="한글 쓰기 연습">
+<meta property="og:description" content="자음·모음을 손가락이나 펜으로 따라 쓰면 획순·방향·모양을 채점하고 고칠 점을 알려 주는 한글 쓰기 연습 도구예요. 선생님 점수를 모아 채점을 맞춰 가요.">
+<meta property="og:url" content="https://hangeul.vercel.app/">
+<meta property="og:image" content="https://hangeul.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ko_KR">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   /* 앱마다 바꿀 디자인 변수 */
   :root {
@@ -76,6 +88,8 @@
   .iss .miss { color: var(--bad); }
   .iss .extra { color: var(--muted); }
   .samples { grid-column: 1 / -1; }
+  .app-foot { max-width: 1100px; margin: 0 auto; padding: 4px 16px 24px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+  .app-foot a { color: var(--muted); }
   /* 쓴 글자 캐러셀: 쓰기 칸 모양 그대로 작게 쌓이고 옆으로 넘겨 본다 */
   .carousel-wrap { width: 100%; }
   .carousel-wrap .empty { text-align: center; margin: 4px 0; }
@@ -143,6 +157,13 @@
 
   <section class="panel samples" id="samples" aria-label="채점 표본"></section>
 </main>
-<script type="module" src="./demo.js"></script>
+<footer class="app-foot">
+  <span>한글 쓰기 연습 · 운영 김경민</span>
+  <a href="/privacy">개인정보처리방침</a>
+  <a href="/terms">이용약관</a>
+  <a href="mailto:themaniwant19@gmail.com">문의</a>
+</footer>
+<!-- 주소 / 에서도 열리도록 절대 경로로 부른다(배포 시 / → /demo/index.html) -->
+<script type="module" src="/demo/demo.js"></script>
 </body>
 </html>
