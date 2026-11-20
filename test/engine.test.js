@@ -162,13 +162,14 @@ test('엉성해도 맞는 글자는 WRONG_CHAR가 아니다', () => {
 
 // 교사 체감 점수 표본(test/samples/*.json): 표본 하나짜리 파일과 연습 화면에서 내려받은 묶음 파일 모두 읽는다.
 // 기준: 평균 차이 8점 이하, 하나하나는 15점 이하
+// 교사가 '판정 기준과 다름'으로 확인한 표본(disputed에 사유)은 지우지 않고 남기되 이 검사에서는 뺀다
 test('교사 채점 표본과 점수가 맞는다', async () => {
   const fs = await import('node:fs');
   const dir = new URL('./samples/', import.meta.url);
   const all = [];
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
     const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
-    for (const [k, s] of (data.samples || [data]).entries()) all.push({ id: `${f}#${k}`, ...s });
+    for (const [k, s] of (data.samples || [data]).entries()) if (!s.disputed) all.push({ id: `${f}#${k}`, ...s });
   }
   const diffs = all.map((s) => {
     const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
@@ -180,24 +181,25 @@ test('교사 채점 표본과 점수가 맞는다', async () => {
   assert.deepEqual(bad, [], '15점 넘게 어긋난 표본');
 });
 
-test('한 붓에 이어 쓰면 STROKES_JOINED, 최고 C, 다른 글자로 보지 않음', () => {
+test('한 붓에 이어 쓰면 STROKES_JOINED, 이은 횟수만큼 감점, 다른 글자로 보지 않음', () => {
   const T = (c) => getTemplate(c).strokes.map((s) => s.points);
   const m = T('ㅁ'), d = T('ㄷ');
-  for (const [ch, st] of [['ㅁ', [...m[0], ...m[2], ...[...m[1]].reverse()]], ['ㄷ', [...[...d[1]].reverse(), ...d[0]]]]) {
+  // ㅁ 3획을 1획으로(2번 이음) → 최고 40, ㄷ 2획을 1획으로(1번 이음) → 최고 60
+  for (const [ch, st, cap] of [['ㅁ', [...m[0], ...m[2], ...[...m[1]].reverse()], 40], ['ㄷ', [...[...d[1]].reverse(), ...d[0]], 60]]) {
     const r = evaluate(ch, [jitter(st)]);
     assert.equal(r.issues[0].code, 'STROKES_JOINED', `${ch}: ${codes(r)}`);
     assert.ok(!codes(r).includes('WRONG_CHAR'), ch);
-    assert.equal(r.grade, 'C');
+    assert.ok(r.score <= cap && r.score >= cap - 5, `${ch}: ${r.score}`);
     assert.equal(feedbackKo(r)[0], '한 번에 이어서 쓰지 말고, 순서에 맞게 나눠서 쓰세요.');
   }
 });
 
-test('한 획을 나눠 쓰면 STROKE_SPLIT, 최고 C', () => {
+test('한 획을 나눠 쓰면 STROKE_SPLIT, 최고 72점', () => {
   const g = getTemplate('ㄱ').strokes[0].points;
   const r = evaluate('ㄱ', [jitter(g.slice(0, 16)), jitter(g.slice(15))]);
   assert.equal(r.issues[0].code, 'STROKE_SPLIT', codes(r).join());
   assert.ok(!codes(r).includes('WRONG_CHAR'));
-  assert.equal(r.grade, 'C');
+  assert.ok(r.score <= 72 && r.score >= 65, `${r.score}`);
   assert.equal(feedbackKo(r)[0], '두 번에 나눠 쓰지 말고 한 번에 써야 해요.');
 });
 
@@ -206,11 +208,14 @@ test('바르게(조금 엉성하게) 쓴 글자는 이어 쓰기·나눠 쓰기�
     const r = evaluate(ch, perfect(ch).map((s) => jitter(s, a)));
     assert.ok(!codes(r).some((c) => c === 'STROKES_JOINED' || c === 'STROKE_SPLIT'), `${ch}(${a}): ${codes(r)}`);
   }
+  // 교사 표본에는 일부러 이어·나눠 쓴 글씨도 있으므로, 획 수를 맞게 쓴 표본만 검사한다(실수로 찍힌 점은 빼고 셈)
   const fs = await import('node:fs');
   const dir = new URL('./samples/', import.meta.url);
+  const len = (st) => st.slice(1).reduce((a, p, i) => a + Math.hypot(p[0] - st[i][0], p[1] - st[i][1]), 0);
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
     const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
     for (const s of data.samples || [data]) {
+      if (s.strokes.filter((st) => len(st) >= 0.02).length !== getTemplate(s.char).strokes.length) continue;
       const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
       assert.ok(!codes(r).some((c) => c === 'STROKES_JOINED' || c === 'STROKE_SPLIT'), `${f} ${s.char}: ${codes(r)}`);
     }
@@ -239,6 +244,31 @@ test('바르게(조금 엉성하게) 쓴 글자는 OVERSHOOT로 보지 않는다
     const r = evaluate(ch, perfect(ch).map((s) => jitter(s, a)));
     assert.ok(!codes(r).includes('OVERSHOOT'), `${ch}(${a}): ${JSON.stringify(r.issues)}`);
   }
+});
+
+test('실수로 찍힌 점은 무시하고, 꺾이는 곳에서 이어 쓴 ㄱ은 나눠 쓰기로 본다', () => {
+  const g = getTemplate('ㄱ').strokes[0].points;
+  const dot = [{ x: 0.5, y: 0.5 }, { x: 0.501, y: 0.5 }];
+  assert.ok(evaluate('ㄱ', [jitter(g), dot]).score >= 90, '점 하나가 더 있어도 바른 ㄱ');
+  // 가로를 긋고 펜을 뗐다가 꺾이는 곳에서 바로 이어 내림(끝·시작 간격 0.03)
+  const h = g.slice(0, 16), v = g.slice(15).map((p, i) => (i === 0 ? { x: p.x + 0.02, y: p.y + 0.02 } : p));
+  const r = evaluate('ㄱ', [jitter(h), jitter(v)]);
+  assert.equal(r.issues[0].code, 'STROKE_SPLIT', codes(r).join());
+});
+
+test('ㅈ을 ㅡ+ㅅ 3획으로 쓰면 ALT_FORM, 최고 65점, 바른 획 수 안내', () => {
+  const st = [[[0.15, 0.22], [0.85, 0.22]], [[0.52, 0.22], [0.2, 0.85]], [[0.42, 0.5], [0.82, 0.85]]]
+    .map(([a, b]) => jitter(Array.from({ length: 12 }, (_, i) => ({ x: a[0] + (b[0] - a[0]) * i / 11, y: a[1] + (b[1] - a[1]) * i / 11 }))));
+  const r = evaluate('ㅈ', st);
+  assert.equal(r.issues[0].code, 'ALT_FORM', codes(r).join());
+  assert.ok(r.score <= 65 && r.score >= 55, `${r.score}`);
+  assert.equal(feedbackKo(r)[0], "ㅈ은(는) 2획으로 써요. '획순 보기'로 순서를 확인해 봐요.");
+});
+
+test('닿아야 할 획에서 멀리 떨어지면 GAP', () => {
+  const s = perfect('ㅈ');
+  s[1] = jitter([{ x: 0.7, y: 0.52 }, { x: 0.85, y: 0.7 }, { x: 0.95, y: 0.85 }]);
+  assert.ok(codes(evaluate('ㅈ', s)).includes('GAP'));
 });
 
 test('피드백 문구가 나온다', () => {

@@ -20,7 +20,7 @@ export function feedbackKo(result) {
   const n = tpl.strokes.length;
   const msgs = [];
   // 다른 글자를 썼거나 획을 이어·나눠 썼으면 세부 지적은 빼고 그것만 알려 준다
-  const FIRST = ['WRONG_CHAR', 'STROKES_JOINED', 'STROKE_SPLIT'];
+  const FIRST = ['WRONG_CHAR', 'STROKES_JOINED', 'STROKE_SPLIT', 'ALT_FORM'];
   const top = FIRST.find((c) => result.issues.some((i) => i.code === c));
   const issues = top ? result.issues.filter((i) => i.code === top) : result.issues;
   for (const it of issues) {
@@ -28,10 +28,13 @@ export function feedbackKo(result) {
       case 'EMPTY': msgs.push('칸 안에 글자를 써 봐요.'); break;
       case 'WRONG_CHAR': msgs.push(`'${it.looksLike}'처럼 보여요. '${result.char}'를 써 봐요. '획순 보기'로 모양을 확인해요.`); break;
       case 'OVERSHOOT': msgs.push(`${nth(it.stroke)}이 ${it.into + 1}번째 획을 넘어갔어요. 닿는 곳에서 멈춰요.`); break;
+      case 'ALT_FORM': msgs.push(`${result.char}은(는) ${it.expected}획으로 써요. '획순 보기'로 순서를 확인해 봐요.`); break;
+      case 'GAP': msgs.push(`${nth(it.stroke)}이 ${it.to + 1}번째 획에 닿지 않았어요. 닿을 때까지 그어요.`); break;
       case 'STROKES_JOINED': msgs.push('한 번에 이어서 쓰지 말고, 순서에 맞게 나눠서 쓰세요.'); break;
       case 'STROKE_SPLIT': {
-        const pieces = Math.max(...it.split.map((s) => s.pieces));
-        msgs.push(`${KOR_COUNT[pieces] || pieces} 번에 나눠 쓰지 말고 한 번에 써야 해요.`);
+        // 여러 획을 나눠 썼으면 횟수 대신 일반 안내
+        if (it.split.length > 1) msgs.push('획을 나눠 쓰지 말고, 한 획은 한 번에 써야 해요.');
+        else msgs.push(`${KOR_COUNT[it.split[0].pieces] || it.split[0].pieces} 번에 나눠 쓰지 말고 한 번에 써야 해요.`);
         break;
       }
       case 'MISSING_STROKE': msgs.push(`획이 ${it.count}개 빠졌어요. ${result.char}은(는) ${n}획이에요.`); break;

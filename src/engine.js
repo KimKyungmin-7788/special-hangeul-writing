@@ -26,7 +26,9 @@ const SHAPE_STRICTNESS = 1.0;
 const ASPECT_FIT = 0.8;
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
 // (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
-const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, STROKES_JOINED: 69, STROKE_SPLIT: 69, WRONG_DIRECTION: 79 };
+const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, STROKE_SPLIT: 72, ALT_FORM: 65, WRONG_DIRECTION: 79 };
+// 이어 쓰기: 이은 횟수만큼 상한을 낮춘다(1번 이으면 60, 2번 이상이면 40). 교사 표본: 3획 ㄹ을 1획으로 40점, ㅁ을 2획으로 60점
+const joinedCap = (joins) => Math.max(40, 80 - 20 * joins);
 // 전체 모양(챔퍼 거리) 비교의 허용 폭 배율. 챔퍼 거리는 가장 가까운 점끼리 재서 값이 작게 나오므로 더 엄격하게 둔다
 const INK_STRICTNESS = 0.5;
 // 획이 템플릿 획을 '덮었다'고 볼 거리(허용 폭 대비)
@@ -34,11 +36,19 @@ const COVER_RADIUS = 0.6;
 // 접점 검사: 정답에서 획 끝이 다른 획에 이만큼 가까우면 '닿는 곳'으로 본다(칸 대비)
 const JUNCTION_TOUCH = 0.035;
 // 접점을 넘어간 길이가 OVER_OK까지는 봐주고, OVER_BAD 이상이면 가장 크게 감점(칸 대비).
-// 교사가 일부러 틀리게 쓴 모음 8개(40~50점)를 포함한 표본 31개로 맞춤(2026-11-19)
+// 교사가 일부러 틀리게 쓴 모음 8개(40~50점)를 포함한 표본으로 맞춤(2026-11-19, 11-20 표본 60개로 다시 확인)
 const OVER_OK = 0.04;
 const OVER_BAD = 0.12;
 // 넘어간 정도에 따른 점수 상한: 가장 심하면 OVER_CAP점, 전혀 안 넘어가면 상한 없음
 const OVER_CAP = 40;
+// 접점에 닿지 않고 떨어진 거리: GAP_OK까지는 봐주고, GAP_BAD 이상이면 최고 GAP_CAP점
+const GAP_OK = 0.08;
+const GAP_BAD = 0.25;
+const GAP_CAP = 50;
+// 실수로 찍힌 점(이보다 짧은 획)은 무시한다(칸 대비)
+const MIN_STROKE = 0.02;
+// 연달아 그은 두 획의 끝·시작이 이만큼 가까우면 '펜을 뗐다 이어 쓴 한 획'으로 본다(칸 대비)
+const MERGE_GAP = 0.08;
 // 다른 글자의 모양 점수가 이만큼 더 높으면 '다른 글자를 썼다'고 본다
 const WRONG_CHAR_MARGIN = 0.2;
 
@@ -46,18 +56,21 @@ const WRONG_CHAR_MARGIN = 0.2;
 
 const templates = {};
 const GROUPS = { consonant: CONSONANTS, vowel: VOWELS };
+const buildStroke = (s) => ({
+  type: s.type,
+  closed: !!s.circle,
+  points: resample(s.circle ? circlePoints(...s.circle) : s.points.map(([x, y]) => ({ x, y }))),
+  // 정답으로 함께 받아 줄 다른 모양(예: ㅎ 꼭지의 가로형)
+  variants: (s.variants || []).map((v) => resample(v.map(([x, y]) => ({ x, y })))),
+});
 for (const [group, defs] of Object.entries(GROUPS)) for (const [ch, def] of Object.entries(defs)) {
   templates[ch] = {
     char: ch,
     name: def.name,
     group,
-    strokes: def.strokes.map((s) => ({
-      type: s.type,
-      closed: !!s.circle,
-      points: resample(s.circle ? circlePoints(...s.circle) : s.points.map(([x, y]) => ({ x, y }))),
-      // 정답으로 함께 받아 줄 다른 모양(예: ㅎ 꼭지의 가로형)
-      variants: (s.variants || []).map((v) => resample(v.map(([x, y]) => ({ x, y })))),
-    })),
+    // 바른 획순은 아니지만 흔히 쓰는 다른 꼴(예: ㅈ을 ㅡ+ㅅ 3획으로). 알아보되 감점한다
+    altForms: (def.altForms || []).map((f) => f.map(buildStroke)),
+    strokes: def.strokes.map(buildStroke),
   };
 }
 
@@ -227,9 +240,35 @@ export function evaluate(char, userStrokes, opts = {}) {
   const tpl = templates[char];
   if (!tpl) throw new Error(`획 데이터가 없는 글자: ${char}`);
   const tol = toleranceOf(opts);
-  const user = prepare(userStrokes);
-  const result = scoreBest(tpl, user, tol);
+  let user = prepare((userStrokes || []).filter((s) => s && s.length && pathLength(s) >= MIN_STROKE));
+  let result = scoreBest(tpl, user, tol);
   if (!user.length) return result;
+  const nt = tpl.strokes.length;
+
+  // 꺾이는 곳에서 펜을 뗐다가 그 자리에서 이어 쓴 경우(ㄱ을 가로·삐침 두 번에): 붙은 연속 획을 이어 붙여 다시 채점
+  if (user.length > nt) {
+    const m = mergeChained(user, nt);
+    if (m) {
+      const r2 = scoreBest(tpl, m.strokes, tol);
+      if (r2.parts.shape > result.parts.shape) {
+        r2.issues = r2.issues.filter((i) => i.code !== 'STROKE_SPLIT');
+        r2.issues.unshift({ code: 'STROKE_SPLIT', split: m.split });
+        capScore(r2, CAPS.STROKE_SPLIT);
+        result = r2;
+        user = m.strokes;
+      }
+    }
+  }
+  // 흔히 쓰는 다른 꼴로 쓴 경우(ㅈ을 ㅡ+ㅅ 3획으로): 알아보되 최고 ALT_FORM점
+  for (const alt of tpl.altForms) {
+    if (alt.length !== user.length || alt.length === nt) continue;
+    const r3 = scoreAgainst(char, alt, user, tol);
+    if (r3.parts.shape > result.parts.shape + 0.05) {
+      r3.issues.unshift({ code: 'ALT_FORM', strokes: alt.length, expected: nt });
+      capScore(r3, CAPS.ALT_FORM);
+      result = r3;
+    }
+  }
 
   // 다른 글자 검사: 다른 글자의 전체 모양 점수가 확연히 높으면 글자를 잘못 쓴 것(예: ㅏ 자리에 ㅓ).
   // 획과 무관한 전체 모양으로 비교해야 이어 쓴 ㅁ을 'ㅇ'으로 오해하지 않는다.
@@ -237,17 +276,40 @@ export function evaluate(char, userStrokes, opts = {}) {
   for (const other of Object.values(templates)) {
     if (other.char === char) continue;
     // 획 수를 맞게 썼으면 획 수가 같은 글자와만 견준다(ㅏ↔ㅓ, ㅐ↔ㅔ처럼 실제로 헷갈리는 짝)
-    if (user.length === tpl.strokes.length && other.strokes.length !== user.length) continue;
+    if ((user.length === nt || result.issues.some((i) => i.code === 'ALT_FORM' || i.code === 'STROKE_SPLIT'))
+      && other.strokes.length !== user.length) continue;
     const s = scoreBest(other, user, tol).inkShapeUniform;
     if (!look || s > look.shape) look = { char: other.char, shape: s };
   }
   if (look && look.shape >= result.inkShapeUniform + WRONG_CHAR_MARGIN) {
     result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
-    result.score = Math.min(result.score, CAPS.WRONG_CHAR);
-    result.grade = gradeOf(result.score);
-    result.stars = starsOf(result.score);
+    capScore(result, CAPS.WRONG_CHAR);
   }
   return result;
+}
+
+function capScore(r, cap) {
+  r.score = Math.min(r.score, cap);
+  r.grade = gradeOf(r.score);
+  r.stars = starsOf(r.score);
+}
+
+// 연달아 그은 두 획의 끝·시작이 붙어 있으면 한 획으로 잇는다(가장 가까운 쌍부터, 목표 획 수가 될 때까지)
+function mergeChained(user, target) {
+  let strokes = [...user], merges = 0;
+  let sizes = user.map(() => 1); // 이어 붙인 획마다 원래 몇 조각이었는지
+  while (strokes.length > target) {
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < strokes.length - 1; i++) {
+      const d = dist(strokes[i][strokes[i].length - 1], strokes[i + 1][0]);
+      if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0 || bd > MERGE_GAP) break;
+    strokes = [...strokes.slice(0, best), resample([...strokes[best], ...strokes[best + 1]]), ...strokes.slice(best + 2)];
+    sizes = [...sizes.slice(0, best), sizes[best] + sizes[best + 1], ...sizes.slice(best + 2)];
+    merges++;
+  }
+  return merges ? { strokes, merges, split: sizes.map((n, i) => ({ stroke: i, pieces: n })).filter((g) => g.pieces > 1) } : null;
 }
 
 // 점 p에서 꺾은선까지의 최단 거리
@@ -436,7 +498,10 @@ function scoreAgainst(char, tStrokes, user, tol) {
     direction = 1;
     const BY_STROKE = new Set(['MISSING_STROKE', 'EXTRA_STROKE', 'WRONG_ORDER', 'WRONG_DIRECTION', 'SHAPE']);
     issues = issues.filter((i) => !BY_STROKE.has(i.code));
-    if (seg.joined.length) issues.unshift({ code: 'STROKES_JOINED', joined: seg.joined });
+    if (seg.joined.length) {
+      const joins = seg.joined.reduce((a, j) => a + j.strokes.length - 1, 0);
+      issues.unshift({ code: 'STROKES_JOINED', joined: seg.joined, joins });
+    }
     else issues.unshift({ code: 'STROKE_SPLIT', split: seg.split });
   }
 
@@ -444,26 +509,39 @@ function scoreAgainst(char, tStrokes, user, tol) {
   //    교사는 비율·위치보다 '획이 넘어간 것'을 크게 감점했다(ㅔ·ㅖ·ㅛ 등 표본 40~50점).
   let overCap = Infinity;
   if (!seg.joined.length && !seg.split.length) {
-    let worst = null;
+    let worst = null, worstGap = null;
     for (const jn of junctionsOf(tStrokes)) {
       const A = strokes[jn.a], B = strokes[jn.b];
       if (A.matched === -1 || B.matched === -1) continue;
       // 학생 획의 방향이 반대면 '끝'이 반대쪽이다
       const fromEnd = (jn.end === 'end') !== !!A.reversed;
       // 넘어간 부분이 글자를 키우므로, 가로·세로를 따로 늘린 좌표가 아니라 같은 비율로 맞춘 좌표에서 잰다
-      const len = overshootLength(uInkU[A.matched], fromEnd, uInkU[B.matched]);
+      const u = uInkU[A.matched], v = uInkU[B.matched];
+      const len = overshootLength(u, fromEnd, v);
       if (!worst || len > worst.len) worst = { ...jn, len };
+      // 넘어가지 않았다면, 닿아야 할 획에서 얼마나 떨어져 멈췄는지
+      if (len === 0) {
+        const gap = distToPolyline(fromEnd ? u[u.length - 1] : u[0], v);
+        if (!worstGap || gap > worstGap.gap) worstGap = { ...jn, gap };
+      }
     }
     if (worst && worst.len > OVER_OK) {
       const j = clamp01(1 - (worst.len - OVER_OK) / (OVER_BAD - OVER_OK));
       overCap = Math.round(OVER_CAP + (100 - OVER_CAP) * j);
       issues.unshift({ code: 'OVERSHOOT', stroke: worst.a, into: worst.b, length: worst.len });
     }
+    if (worstGap && worstGap.gap > GAP_OK) {
+      const j = clamp01(1 - (worstGap.gap - GAP_OK) / (GAP_BAD - GAP_OK));
+      overCap = Math.min(overCap, Math.round(GAP_CAP + (100 - GAP_CAP) * j));
+      issues.unshift({ code: 'GAP', stroke: worstGap.a, to: worstGap.b, length: worstGap.gap });
+    }
   }
 
   const parts = { order, direction, shape, placement };
   let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
   for (const it of issues) if (CAPS[it.code] !== undefined) score = Math.min(score, CAPS[it.code]);
+  const joinedIssue = issues.find((i) => i.code === 'STROKES_JOINED');
+  if (joinedIssue) score = Math.min(score, joinedCap(joinedIssue.joins));
   score = Math.min(score, overCap);
 
   return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, inkShapeUniform, strokes, extraStrokes: extra, issues };
