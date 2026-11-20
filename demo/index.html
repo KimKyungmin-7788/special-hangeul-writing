@@ -37,6 +37,14 @@
   .pad-resize:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .pad-size-label { position: absolute; right: 32px; bottom: -12px; font-size: 12px; color: var(--muted); background: var(--panel); padding: 2px 6px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .pad-wrap.resizing .pad-size-label { opacity: 1; }
+  /* 자동 제출 원형 타이머: 펜을 떼면 쓰기 칸 오른쪽 위에서 줄어들며 돈다 */
+  .auto-timer { position: absolute; top: 10px; right: 10px; width: 46px; height: 46px; pointer-events: none; opacity: 0; transition: opacity .15s; }
+  .auto-timer.running { opacity: 1; }
+  .auto-timer circle { fill: none; stroke-width: 3.5; }
+  .auto-timer .track { stroke: var(--line); fill: var(--panel); }
+  .auto-timer .ring { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 94.25; transform: rotate(-90deg); transform-origin: 18px 18px; }
+  .auto-timer text { font-size: 13px; font-weight: 700; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+  #autoSec { width: 64px; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 36px; }
   canvas { width: 100%; aspect-ratio: 1; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   canvas.shake { animation: shake .3s; }
   @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
@@ -85,6 +93,11 @@
       <canvas id="pad" width="420" height="420"></canvas>
       <div class="pad-resize" id="padResize" role="slider" tabindex="0" aria-label="쓰기 칸 크기" aria-valuemin="200" title="끌어서 칸 크기 조절"></div>
       <span class="pad-size-label" id="padSizeLabel"></span>
+      <svg class="auto-timer" id="autoTimer" viewBox="0 0 36 36" role="img" aria-label="자동 제출까지 남은 시간">
+        <circle class="track" cx="18" cy="18" r="15"></circle>
+        <circle class="ring" id="autoRing" cx="18" cy="18" r="15"></circle>
+        <text id="autoNum" x="18" y="18"></text>
+      </svg>
     </div>
     <div class="toast" id="toast" aria-live="polite"></div>
     <div class="toolbar">
@@ -96,6 +109,7 @@
       <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
       <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
       <label class="toggle"><input type="checkbox" id="penOnly"> 펜슬만 받기 (손바닥 터치 무시)</label>
+      <label class="toggle">자동 제출 <input type="number" id="autoSec" min="0" max="10" step="0.5" value="3" inputmode="decimal"> 초 (0이면 끔)</label>
     </div>
   </section>
 

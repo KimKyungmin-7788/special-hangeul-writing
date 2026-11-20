@@ -73,6 +73,7 @@ pad.addEventListener('pointerdown', (e) => {
   // 펜슬만 받기: 펜슬로 쓰는 동안 손바닥·손가락 터치가 획으로 들어가지 않게 한다
   if ($('penOnly').checked && e.pointerType !== 'pen') return;
   e.preventDefault();
+  cancelAuto(); // 다음 획을 시작하면 자동 제출 타이머 취소
   activePointer = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
   drawing = [toPoint(e)];
@@ -110,9 +111,35 @@ function endStroke(e) {
   toast('');
   strokes.push(s);
   redraw();
+  startAuto(); // 펜을 뗐다: 지정 시간 안에 다음 획이 없으면 자동 제출
 }
 pad.addEventListener('pointerup', endStroke);
 pad.addEventListener('pointercancel', endStroke);
+
+// ---------- 자동 제출 타이머 ----------
+// 펜을 떼면 쓰기 칸 오른쪽 위에서 원형 타이머가 돌고, 지정 시간(기본 3초) 안에 다음 획이 없으면 '다 썼어요'를 누른 것처럼 채점한다.
+const AUTO_R = 15, AUTO_C = 2 * Math.PI * AUTO_R; // 원 둘레
+let autoRun = null;
+function cancelAuto() {
+  if (autoRun) cancelAnimationFrame(autoRun.raf);
+  autoRun = null;
+  $('autoTimer').classList.remove('running');
+}
+function startAuto() {
+  cancelAuto();
+  const sec = Number($('autoSec').value);
+  if (!(sec > 0) || !strokes.length) return; // 0초면 꺼짐
+  const dur = sec * 1000, t0 = performance.now();
+  $('autoTimer').classList.add('running');
+  const tick = (now) => {
+    const used = Math.min(1, (now - t0) / dur);
+    $('autoRing').style.strokeDashoffset = String(AUTO_C * used);
+    $('autoNum').textContent = String(Math.max(1, Math.ceil((dur - (now - t0)) / 1000)));
+    if (used >= 1) { cancelAuto(); score(); return; }
+    autoRun.raf = requestAnimationFrame(tick);
+  };
+  autoRun = { raf: requestAnimationFrame(tick) };
+}
 
 // ---------- 서걱 소리 (Web Audio 잡음) ----------
 const scratch = (() => {
@@ -137,6 +164,7 @@ const scratch = (() => {
 // ---------- 획순 애니메이션 ----------
 async function animate() {
   if (animating) return;
+  cancelAuto();
   animating = true;
   const n = getTemplate(current).strokes.length;
   for (let i = 0; i < n; i++) {
@@ -156,6 +184,7 @@ const gradeColor = (g) => ({ S: '--good', A: '--good', B: '--accent', C: '--warn
 const PART_LABEL = { order: '획순', direction: '방향', shape: '모양', placement: '자리·크기' };
 
 function score() {
+  cancelAuto();
   const r = evaluate(current, strokes, { device: $('device').value });
   best[current] = Math.max(best[current] ?? 0, r.score);
   const el = $('result');
@@ -303,6 +332,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 });
 
 function select(ch) {
+  cancelAuto();
   current = ch; strokes = []; toast('');
   $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
   renderGrid(); redraw();
@@ -311,11 +341,11 @@ function select(ch) {
 function toast(msg) { $('toast').textContent = msg; }
 
 $('animBtn').onclick = animate;
-$('clearBtn').onclick = () => { strokes = []; toast(''); redraw(); };
+$('clearBtn').onclick = () => { cancelAuto(); strokes = []; toast(''); redraw(); };
 $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
-for (const id of ['penOnly', 'device']) {
+for (const id of ['penOnly', 'device', 'autoSec']) {
   const el = $(id), key = 'hw-pref-' + id;
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
