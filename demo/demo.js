@@ -320,11 +320,57 @@ for (const id of ['penOnly', 'device']) {
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
 }
-window.addEventListener('resize', fitCanvas);
+window.addEventListener('resize', () => { setPadSize(padSize, false); });
+
+// ---------- 쓰기 칸 크기 조절 ----------
+// 획은 칸 기준 0~1 좌표로 저장되므로 크기를 바꿔도 그대로 맞춰 다시 그려지고 채점도 같다.
+const PAD_MIN = 200, PAD_STEP = 20, PAD_KEY = 'hw-pref-padSize';
+const padWrap = $('padWrap'), padHandle = $('padResize'), padLabel = $('padSizeLabel');
+let padSize = 420;
+const padMax = () => {
+  const stage = padWrap.parentElement, cs = getComputedStyle(stage);
+  return Math.max(PAD_MIN, stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+};
+function setPadSize(px, save = true) {
+  padSize = Math.round(Math.max(PAD_MIN, Math.min(padMax(), px)));
+  document.documentElement.style.setProperty('--pad-size', padSize + 'px');
+  padHandle.setAttribute('aria-valuemax', String(Math.round(padMax())));
+  padHandle.setAttribute('aria-valuenow', String(padSize));
+  padHandle.setAttribute('aria-valuetext', `${padSize}픽셀`);
+  padLabel.textContent = `${padSize}px`;
+  fitCanvas();
+  if (save) { try { localStorage.setItem(PAD_KEY, String(padSize)); } catch {} }
+}
+let padDrag = null;
+padHandle.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  try { padHandle.setPointerCapture(e.pointerId); } catch {}
+  padDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, size: padWrap.getBoundingClientRect().width };
+  padWrap.classList.add('resizing');
+});
+padHandle.addEventListener('pointermove', (e) => {
+  if (!padDrag || e.pointerId !== padDrag.id) return;
+  // 오른쪽·아래로 끌면 커지고 왼쪽·위로 끌면 작아진다(더 많이 움직인 쪽을 따름)
+  const dx = e.clientX - padDrag.x, dy = e.clientY - padDrag.y;
+  setPadSize(padDrag.size + (Math.abs(dx) > Math.abs(dy) ? dx : dy), false);
+});
+const endPadDrag = (e) => {
+  if (!padDrag || e.pointerId !== padDrag.id) return;
+  padDrag = null;
+  padWrap.classList.remove('resizing');
+  setPadSize(padSize);
+};
+padHandle.addEventListener('pointerup', endPadDrag);
+padHandle.addEventListener('pointercancel', endPadDrag);
+padHandle.addEventListener('keydown', (e) => {
+  const d = { ArrowRight: PAD_STEP, ArrowUp: PAD_STEP, ArrowLeft: -PAD_STEP, ArrowDown: -PAD_STEP }[e.key];
+  if (d) { e.preventDefault(); setPadSize(padSize + d); }
+});
+try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = saved; } catch {}
 
 renderGrid();
 renderSamples();
-fitCanvas();
+setPadSize(padSize, false);
 
 // 브라우저 콘솔에서 자동 확인할 때 쓰는 손잡이
 window.__hw = { evaluate, getTemplate, setStrokes: (s) => { strokes = s; redraw(); }, score, select };
