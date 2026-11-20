@@ -74,6 +74,7 @@ pad.addEventListener('pointerdown', (e) => {
   if ($('penOnly').checked && e.pointerType !== 'pen') return;
   e.preventDefault();
   cancelAuto(); // 다음 획을 시작하면 자동 제출 타이머 취소
+  leaveViewing();
   activePointer = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
   drawing = [toPoint(e)];
@@ -115,6 +116,98 @@ function endStroke(e) {
 }
 pad.addEventListener('pointerup', endStroke);
 pad.addEventListener('pointercancel', endStroke);
+
+// ---------- 쓴 글자 캐러셀 ----------
+// 제출한 글씨는 쓰기 칸 모양 그대로 아래 캐러셀에 쌓인다(이 화면에서만, 저장 안 함).
+// 카드를 누르면 그 글씨와 결과를 큰 칸으로 불러오고, 불러온 상태에서 펜을 대면 새 글쓰기가 시작된다.
+const attempts = [];
+let attemptSeq = 0;
+let viewing = null; // 불러온 기록의 id
+
+function drawThumb(canvas, strokesToDraw) {
+  const dpr = window.devicePixelRatio || 1, size = canvas.clientWidth || 84;
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  const c = canvas.getContext('2d');
+  c.setTransform(size * dpr, 0, 0, size * dpr, 0, 0);
+  c.clearRect(0, 0, 1, 1);
+  c.strokeStyle = css('--line'); c.lineWidth = 1 / size; c.setLineDash([3 / size, 3 / size]);
+  c.beginPath(); c.moveTo(0.5, 0); c.lineTo(0.5, 1); c.moveTo(0, 0.5); c.lineTo(1, 0.5); c.stroke();
+  c.setLineDash([]); c.strokeStyle = css('--pen'); c.lineWidth = 0.05; c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const st of strokesToDraw) {
+    c.beginPath(); c.moveTo(st[0].x, st[0].y);
+    for (const p of st.slice(1)) c.lineTo(p.x, p.y);
+    if (st.length === 1) c.lineTo(st[0].x + 0.001, st[0].y);
+    c.stroke();
+  }
+}
+
+function renderCarousel() {
+  const box = $('carousel');
+  box.replaceChildren();
+  $('carouselEmpty').hidden = attempts.length > 0;
+  for (const a of attempts) {
+    const b = document.createElement('button');
+    b.className = 'thumb'; b.dataset.id = a.id;
+    b.setAttribute('aria-current', String(a.id === viewing));
+    b.setAttribute('aria-label', `${a.char} ${a.n}번째, ${a.result.score}점. 눌러서 불러오기`);
+    const cv = document.createElement('canvas');
+    const badge = document.createElement('span'); badge.className = 'badge';
+    badge.textContent = `${a.result.grade} ${a.result.score}`;
+    badge.style.background = `var(${gradeColor(a.result.grade)})`;
+    const cap = document.createElement('span'); cap.className = 'cap'; cap.textContent = `${a.char} · ${a.n}번째`;
+    b.append(cv, badge, cap);
+    b.onclick = () => loadAttempt(a.id);
+    box.append(b);
+    drawThumb(cv, a.strokes);
+  }
+}
+
+// 쓴 칸이 작아지며 캐러셀 끝 카드 자리로 날아가는 효과
+function sendToCarousel(a) {
+  const from = pad.getBoundingClientRect();
+  const snapshot = pad.toDataURL();
+  renderCarousel();
+  const box = $('carousel');
+  box.scrollLeft = box.scrollWidth; // 새 카드가 보이게 끝으로
+  const card = box.querySelector(`.thumb[data-id="${a.id}"]`);
+  if (!card || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = card.querySelector('canvas').getBoundingClientRect();
+  card.style.opacity = '0';
+  const img = new Image();
+  img.src = snapshot;
+  img.style.cssText = `position:fixed;left:${from.left}px;top:${from.top}px;width:${from.width}px;height:${from.height}px;`
+    + 'z-index:50;pointer-events:none;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.18);transform-origin:0 0';
+  document.body.append(img);
+  const anim = img.animate([
+    { transform: 'none', opacity: 1 },
+    { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`, opacity: 0.85 },
+  ], { duration: 480, easing: 'cubic-bezier(.3,.7,.2,1)' });
+  anim.onfinish = () => { img.remove(); card.style.opacity = ''; };
+}
+
+function loadAttempt(id) {
+  const a = attempts.find((x) => x.id === id);
+  if (!a) return;
+  cancelAuto();
+  viewing = id;
+  const g = getTemplate(a.char).group;
+  if (g !== group) { group = g; chars = listChars(group); }
+  current = a.char;
+  strokes = a.strokes.map((st) => st.map((p) => ({ ...p })));
+  toast('불러온 글씨예요. 펜을 대면 새로 쓰기 시작해요.');
+  redraw();
+  showResult(a.result, a);
+  renderCarousel();
+}
+
+// 불러온 글씨를 보다가 펜을 대면 비우고 새 글쓰기로
+function leaveViewing() {
+  if (!viewing) return;
+  viewing = null;
+  strokes = [];
+  toast('');
+  renderCarousel();
+}
 
 // ---------- 자동 제출 타이머 ----------
 // 펜을 떼면 쓰기 칸 오른쪽 위에서 원형 타이머가 돌고, 지정 시간(기본 3초) 안에 다음 획이 없으면 '다 썼어요'를 누른 것처럼 채점한다.
@@ -185,8 +278,21 @@ const PART_LABEL = { order: '획순', direction: '방향', shape: '모양', plac
 
 function score() {
   cancelAuto();
-  const r = evaluate(current, strokes, { device: $('device').value });
+  // 캐러셀에서 불러온 글씨를 보고 있을 때는 새 기록을 만들지 않고 그 결과만 다시 보여 준다
+  if (viewing) { const a = attempts.find((x) => x.id === viewing); if (a) showResult(a.result, a); return; }
+  const device = $('device').value;
+  const r = evaluate(current, strokes, { device });
   best[current] = Math.max(best[current] ?? 0, r.score);
+  if (!strokes.length) { showResult(r, null); return; }
+  const a = { id: ++attemptSeq, char: current, strokes, device, result: r, n: attempts.filter((x) => x.char === current).length + 1 };
+  attempts.push(a);
+  showResult(r, a);
+  sendToCarousel(a); // 쓴 칸이 아래 캐러셀로 날아가 쌓이고
+  strokes = [];      // 큰 쓰기 칸은 자동으로 비워 새 글쓰기를 준비한다
+  redraw();
+}
+
+function showResult(r, attempt) {
   const el = $('result');
   el.replaceChildren();
   const head = document.createElement('div'); head.className = 'score';
@@ -201,9 +307,8 @@ function score() {
   const ul = document.createElement('ul');
   for (const m of feedbackKo(r)) { const li = document.createElement('li'); li.textContent = m; ul.append(li); }
   el.append(ul);
-  if (strokes.length) el.append(calibForm(r));
+  if (attempt) el.append(calibForm(r, attempt));
   renderGrid();
-  console.log('채점 결과', r);
 }
 
 // ---------- 교사 점수 표본 모으기 (채점 보정용) ----------
@@ -217,7 +322,7 @@ const round3 = (v) => Math.round(v * 1000) / 1000;
 const toPoints = (s) => s.map((st) => st.map(([x, y]) => ({ x, y })));
 const TOLERANCE = 8; // 엔진과 선생님 점수 차이 허용 범위
 
-function calibForm(r) {
+function calibForm(r, attempt) {
   const box = document.createElement('div'); box.className = 'calib';
   box.innerHTML = `
     <label for="teacherScore">선생님이 본 점수</label>
@@ -231,8 +336,8 @@ function calibForm(r) {
     const v = Number(input.value);
     if (input.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; input.focus(); return; }
     samples.push({
-      char: current, teacherScore: v, device: $('device').value, engineScoreAtSave: r.score,
-      strokes: strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
+      char: attempt.char, teacherScore: v, device: attempt.device, engineScoreAtSave: r.score,
+      strokes: attempt.strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
       savedAt: new Date().toISOString(),
     });
     persist(); renderSamples();
@@ -333,6 +438,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 
 function select(ch) {
   cancelAuto();
+  if (viewing) { viewing = null; renderCarousel(); }
   current = ch; strokes = []; toast('');
   $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
   renderGrid(); redraw();
@@ -341,7 +447,7 @@ function select(ch) {
 function toast(msg) { $('toast').textContent = msg; }
 
 $('animBtn').onclick = animate;
-$('clearBtn').onclick = () => { cancelAuto(); strokes = []; toast(''); redraw(); };
+$('clearBtn').onclick = () => { cancelAuto(); leaveViewing(); strokes = []; toast(''); redraw(); };
 $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
@@ -399,6 +505,7 @@ padHandle.addEventListener('keydown', (e) => {
 try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = saved; } catch {}
 
 renderGrid();
+renderCarousel();
 renderSamples();
 setPadSize(padSize, false);
 
