@@ -84,6 +84,6 @@ python3 tools/serve.py
 5. 교사 점수와 판정 기준이 서로 다르다고 확인한 표본에는 `"disputed": "사유"`를 적습니다. 지우지 않고 남기되 검사에서는 뺍니다.
 
 ## 배포 (Vercel)
-- 주소: https://hangeul.vercel.app (`/` 가 연습 화면, `/demo/review.html` 검수표, `/privacy` `/terms`)
+- 주소: https://hangeul-one.vercel.app (`/` 가 연습 화면, `/demo/review.html` 검수표, `/privacy` `/terms`)
 - `main`에 올리면 자동으로 다시 배포됩니다. `vercel.json`에 보안 헤더(CSP 등)가 있고, `.vercelignore`로 `test/`·`tools/`는 올리지 않습니다.
 - **외부 스크립트·글꼴·API를 새로 넣거나 저장·전송 기능을 추가하면 `vercel.json`의 CSP와 `privacy.html`을 같이 고쳐야 합니다.** 지금은 서버로 보내는 데이터가 없고 브라우저 저장소에만 남깁니다.
