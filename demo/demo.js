@@ -1,6 +1,6 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
-import { feedbackKo } from '../src/feedback-ko.js';
+import { feedbackKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
 import { copyText } from './copy.js';
 
 const $ = (id) => document.getElementById(id);
@@ -330,18 +330,40 @@ function calibForm(r, attempt) {
       <input id="teacherScore" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0~100">
       <button class="btn" id="saveSample">표본 저장</button>
     </div>
+    <fieldset class="calib-issues">
+      <legend>선생님 눈에 보이는 문제</legend>
+      <p class="hint">엔진 결과와 상관없이 보이는 대로 고르세요. 안 고르면 '표시 안 함'으로 저장돼요.</p>
+      <div class="chips">
+        <label class="chip none"><input type="checkbox" value="NONE"><span>문제 없음</span></label>
+        ${Object.entries(ISSUE_NAMES_KO).map(([code, name]) => `<label class="chip"><input type="checkbox" value="${code}"><span>${name}</span></label>`).join('')}
+      </div>
+    </fieldset>
     <p class="calib-msg" aria-live="polite">엔진 ${r.score}점과 다르게 느껴지면 선생님 점수를 넣어 저장하세요.</p>`;
   const input = box.querySelector('input'), msg = box.querySelector('.calib-msg');
+  const checks = [...box.querySelectorAll('.chips input')];
+  const none = checks.find((c) => c.value === 'NONE');
+  // '문제 없음'과 다른 문제는 함께 고를 수 없다
+  for (const c of checks) c.onchange = () => {
+    if (!c.checked) return;
+    if (c === none) checks.forEach((o) => { if (o !== none) o.checked = false; });
+    else none.checked = false;
+  };
   box.querySelector('#saveSample').onclick = () => {
     const v = Number(input.value);
     if (input.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; input.focus(); return; }
+    const picked = checks.filter((c) => c.checked && c !== none).map((c) => c.value);
     samples.push({
       char: attempt.char, teacherScore: v, device: attempt.device, engineScoreAtSave: r.score,
+      // 교사가 고른 문제 코드. []는 '문제 없음'을 고른 것, null은 표시하지 않은 것(예전 표본도 null)
+      teacherIssues: none.checked ? [] : (picked.length ? picked : null),
+      engineIssuesAtSave: r.issues.map((i) => i.code),
       strokes: attempt.strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
       savedAt: new Date().toISOString(),
     });
     persist(); renderSamples();
     msg.textContent = `저장했어요. (선생님 ${v}점 · 엔진 ${r.score}점) 모은 표본 ${samples.length}개`;
+    // 같은 글씨를 두 번 저장하지 않도록 비운다
+    input.value = ''; checks.forEach((c) => { c.checked = false; });
   };
   return box;
 }
@@ -356,22 +378,24 @@ function renderSamples() {
     el.append(p); return;
   }
   const rows = samples.map((s, i) => {
-    const now = evaluate(s.char, toPoints(s.strokes), { device: s.device }).score;
-    return { i, s, now, diff: now - s.teacherScore };
+    const res = evaluate(s.char, toPoints(s.strokes), { device: s.device });
+    return { i, s, now: res.score, diff: res.score - s.teacherScore, codes: res.issues.map((x) => x.code) };
   });
   const mae = rows.reduce((a, r) => a + Math.abs(r.diff), 0) / rows.length;
   const off = rows.filter((r) => Math.abs(r.diff) > TOLERANCE).length;
   const sum = document.createElement('p'); sum.className = 'calib-sum';
   sum.textContent = `평균 차이 ${mae.toFixed(1)}점 · ±${TOLERANCE}점을 벗어난 표본 ${off}개`;
+  const agree = issueAgreement(rows);
+  if (agree) sum.textContent += ` · 문제 표시 ${agree.labeled}개 중 선생님이 고른 문제를 엔진이 찾은 비율 ${agree.found}/${agree.picked}, 엔진만 짚은 문제 ${agree.extra}개`;
   el.append(sum);
 
   const table = document.createElement('table');
-  table.innerHTML = '<thead><tr><th>글자</th><th>선생님</th><th>엔진(지금)</th><th>차이</th><th>기기</th><th></th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>글자</th><th>선생님</th><th>엔진(지금)</th><th>차이</th><th>기기</th><th>문제 (선생님 기준)</th><th></th></tr></thead>';
   const tb = document.createElement('tbody');
   for (const r of [...rows].reverse()) {
     const tr = document.createElement('tr');
     if (Math.abs(r.diff) > TOLERANCE) tr.className = 'off';
-    tr.innerHTML = `<td>${r.s.char}</td><td>${r.s.teacherScore}</td><td>${r.now}</td><td>${r.diff > 0 ? '+' : ''}${r.diff}</td><td>${{ finger: '손가락', pen: '펜', board: '전자칠판' }[r.s.device] || r.s.device}</td>`;
+    tr.innerHTML = `<td>${r.s.char}</td><td>${r.s.teacherScore}</td><td>${r.now}</td><td>${r.diff > 0 ? '+' : ''}${r.diff}</td><td>${{ finger: '손가락', pen: '펜', board: '전자칠판' }[r.s.device] || r.s.device}</td><td class="iss">${issueCell(r)}</td>`;
     const td = document.createElement('td');
     const del = document.createElement('button'); del.className = 'btn small'; del.textContent = '삭제';
     del.setAttribute('aria-label', `${r.s.char} 표본 삭제`);
@@ -392,6 +416,28 @@ function renderSamples() {
   const hint = document.createElement('p'); hint.className = 'empty';
   hint.textContent = '내려받은 파일을 프로젝트의 test/samples/ 폴더에 넣으면 npm test가 엔진 점수와 선생님 점수 차이를 검사합니다.';
   el.append(hint);
+}
+
+// 선생님이 고른 문제와 지금 엔진이 찾은 문제 비교. 그대로: 둘 다, 빨강 '놓침': 엔진이 못 찾음, 회색 +: 엔진만
+function issueCell(r) {
+  const t = r.s.teacherIssues;
+  if (t == null) return '<span class="extra">표시 안 함</span>';
+  const name = (c) => ISSUE_NAMES_KO[c] || c;
+  const parts = t.map((c) => r.codes.includes(c) ? name(c) : `<span class="miss">${name(c)}(놓침)</span>`);
+  for (const c of r.codes) if (!t.includes(c) && ISSUE_NAMES_KO[c]) parts.push(`<span class="extra">+${name(c)}</span>`);
+  return parts.length ? parts.join(' · ') : '문제 없음';
+}
+
+function issueAgreement(rows) {
+  const labeled = rows.filter((r) => Array.isArray(r.s.teacherIssues));
+  if (!labeled.length) return null;
+  let picked = 0, found = 0, extra = 0;
+  for (const r of labeled) {
+    picked += r.s.teacherIssues.length;
+    found += r.s.teacherIssues.filter((c) => r.codes.includes(c)).length;
+    extra += r.codes.filter((c) => !r.s.teacherIssues.includes(c) && ISSUE_NAMES_KO[c]).length;
+  }
+  return { labeled: labeled.length, picked, found, extra };
 }
 
 // 표본 하나를 한 줄로 써서 파일을 짧고 git 비교하기 쉽게

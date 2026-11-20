@@ -15,6 +15,25 @@ function directionHint(stroke) {
   return dx < 0 ? '오른쪽 위에서 왼쪽 아래로 그어요' : '왼쪽 위에서 오른쪽 아래로 그어요';
 }
 
+// 문제 코드의 짧은 이름. 교사가 표본에 '어떤 문제가 보이는지' 표시할 때와 검수 화면에서 쓴다.
+// 순서가 곧 표시 순서다(EMPTY는 표시할 일이 없어 뺀다).
+export const ISSUE_NAMES_KO = {
+  WRONG_CHAR: '다른 글자',
+  MISSING_STROKE: '획 빠짐',
+  EXTRA_STROKE: '획 더함',
+  WRONG_ORDER: '획순',
+  WRONG_DIRECTION: '방향',
+  STROKES_JOINED: '이어 씀',
+  STROKE_SPLIT: '나눠 씀',
+  ALT_FORM: '다른 꼴',
+  OVERSHOOT: '넘어감',
+  GAP: '안 닿음',
+  SHAPE: '획 모양',
+  TOO_SMALL: '너무 작음',
+  TOO_BIG: '너무 큼',
+  OFF_CENTER: '치우침',
+};
+
 export function feedbackKo(result) {
   const tpl = getTemplate(result.char);
   const n = tpl.strokes.length;

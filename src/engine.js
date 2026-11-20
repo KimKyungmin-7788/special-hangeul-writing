@@ -241,7 +241,9 @@ export function evaluate(char, userStrokes, opts = {}) {
   if (!tpl) throw new Error(`획 데이터가 없는 글자: ${char}`);
   const tol = toleranceOf(opts);
   let user = prepare((userStrokes || []).filter((s) => s && s.length && pathLength(s) >= MIN_STROKE));
+  const rawStrokes = user.length;
   let result = scoreBest(tpl, user, tol);
+  result.measures.rawStrokes = rawStrokes;
   if (!user.length) return result;
   const nt = tpl.strokes.length;
 
@@ -254,6 +256,7 @@ export function evaluate(char, userStrokes, opts = {}) {
         r2.issues = r2.issues.filter((i) => i.code !== 'STROKE_SPLIT');
         r2.issues.unshift({ code: 'STROKE_SPLIT', split: m.split });
         capScore(r2, CAPS.STROKE_SPLIT);
+        r2.measures.mergedPieces = m.merges;
         result = r2;
         user = m.strokes;
       }
@@ -266,6 +269,7 @@ export function evaluate(char, userStrokes, opts = {}) {
     if (r3.parts.shape > result.parts.shape + 0.05) {
       r3.issues.unshift({ code: 'ALT_FORM', strokes: alt.length, expected: nt });
       capScore(r3, CAPS.ALT_FORM);
+      r3.measures.altForm = 1;
       result = r3;
     }
   }
@@ -281,6 +285,9 @@ export function evaluate(char, userStrokes, opts = {}) {
     const s = scoreBest(other, user, tol).inkShapeUniform;
     if (!look || s > look.shape) look = { char: other.char, shape: s };
   }
+  result.measures.rawStrokes = rawStrokes;
+  // 가장 닮은 다른 글자가 이 글자보다 얼마나 더 닮았나(0.2 이상이면 다른 글자로 판정)
+  if (look) result.measures.otherCharMargin = look.shape - result.inkShapeUniform;
   if (look && look.shape >= result.inkShapeUniform + WRONG_CHAR_MARGIN) {
     result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
     capScore(result, CAPS.WRONG_CHAR);
@@ -423,7 +430,7 @@ function scoreAgainst(char, tStrokes, user, tol) {
     return { char, score: 0, grade: 'F', stars: 0,
       parts: { order: 0, direction: 0, shape: 0, placement: 0 },
       strokes: tStrokes.map((s, j) => ({ index: j, type: s.type, matched: -1 })),
-      extraStrokes: 0, issues: [{ code: 'EMPTY' }] };
+      extraStrokes: 0, issues: [{ code: 'EMPTY' }], measures: emptyMeasures(nt) };
   }
 
   // 1) 자리·크기: 글자 전체 테두리 상자 비교
@@ -508,8 +515,8 @@ function scoreAgainst(char, tStrokes, user, tol) {
   // 5) 접점: 정답에서 획 끝이 다른 획에 닿는 곳마다, 학생 획이 거기서 멈췄는지 넘어갔는지 본다.
   //    교사는 비율·위치보다 '획이 넘어간 것'을 크게 감점했다(ㅔ·ㅖ·ㅛ 등 표본 40~50점).
   let overCap = Infinity;
+  let overAt = null, gapAt = null;
   if (!seg.joined.length && !seg.split.length) {
-    let worst = null, worstGap = null;
     for (const jn of junctionsOf(tStrokes)) {
       const A = strokes[jn.a], B = strokes[jn.b];
       if (A.matched === -1 || B.matched === -1) continue;
@@ -518,33 +525,68 @@ function scoreAgainst(char, tStrokes, user, tol) {
       // 넘어간 부분이 글자를 키우므로, 가로·세로를 따로 늘린 좌표가 아니라 같은 비율로 맞춘 좌표에서 잰다
       const u = uInkU[A.matched], v = uInkU[B.matched];
       const len = overshootLength(u, fromEnd, v);
-      if (!worst || len > worst.len) worst = { ...jn, len };
+      if (!overAt || len > overAt.len) overAt = { ...jn, len };
       // 넘어가지 않았다면, 닿아야 할 획에서 얼마나 떨어져 멈췄는지
       if (len === 0) {
         const gap = distToPolyline(fromEnd ? u[u.length - 1] : u[0], v);
-        if (!worstGap || gap > worstGap.gap) worstGap = { ...jn, gap };
+        if (!gapAt || gap > gapAt.gap) gapAt = { ...jn, gap };
       }
     }
-    if (worst && worst.len > OVER_OK) {
-      const j = clamp01(1 - (worst.len - OVER_OK) / (OVER_BAD - OVER_OK));
+    if (overAt && overAt.len > OVER_OK) {
+      const j = clamp01(1 - (overAt.len - OVER_OK) / (OVER_BAD - OVER_OK));
       overCap = Math.round(OVER_CAP + (100 - OVER_CAP) * j);
-      issues.unshift({ code: 'OVERSHOOT', stroke: worst.a, into: worst.b, length: worst.len });
+      issues.unshift({ code: 'OVERSHOOT', stroke: overAt.a, into: overAt.b, length: overAt.len });
     }
-    if (worstGap && worstGap.gap > GAP_OK) {
-      const j = clamp01(1 - (worstGap.gap - GAP_OK) / (GAP_BAD - GAP_OK));
+    if (gapAt && gapAt.gap > GAP_OK) {
+      const j = clamp01(1 - (gapAt.gap - GAP_OK) / (GAP_BAD - GAP_OK));
       overCap = Math.min(overCap, Math.round(GAP_CAP + (100 - GAP_CAP) * j));
-      issues.unshift({ code: 'GAP', stroke: worstGap.a, to: worstGap.b, length: worstGap.gap });
+      issues.unshift({ code: 'GAP', stroke: gapAt.a, to: gapAt.b, length: gapAt.gap });
     }
   }
 
   const parts = { order, direction, shape, placement };
   let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
+  const uncapped = score;
   for (const it of issues) if (CAPS[it.code] !== undefined) score = Math.min(score, CAPS[it.code]);
   const joinedIssue = issues.find((i) => i.code === 'STROKES_JOINED');
   if (joinedIssue) score = Math.min(score, joinedCap(joinedIssue.joins));
   score = Math.min(score, overCap);
 
-  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, inkShapeUniform, strokes, extraStrokes: extra, issues };
+  // 측정값: 상한·배점을 적용하기 전의 날 숫자. 교사 점수에 맞춰 무게를 학습할 때 입력으로 쓴다.
+  const measures = {
+    ...emptyMeasures(nt),
+    userStrokes: nu,
+    missingStrokes: missing,
+    extraStrokes: extra,
+    outOfOrderStrokes: outOfOrder.length,
+    reversedStrokes: reversed.length,
+    order, direction, shape, placement,
+    strokeShapeAvg: avg,
+    strokeShapeMin: Math.min(...strokeScores),
+    inkShape, inkShapeUniform,
+    sizeRatio: size,
+    aspectRatio: (ub.w / ub.h) / (tb.w / tb.h),
+    offset,
+    overshoot: overAt ? overAt.len : 0,
+    gap: gapAt ? gapAt.gap : 0,
+    joins: seg.joined.reduce((a, j) => a + j.strokes.length - 1, 0),
+    splitPieces: seg.split.reduce((a, s) => a + s.pieces - 1, 0),
+    uncappedScore: uncapped,
+  };
+
+  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, inkShapeUniform, strokes, extraStrokes: extra, issues, measures };
+}
+
+// 측정값의 기본 틀. 키 순서가 곧 내보내기(CSV) 열 순서다.
+function emptyMeasures(nt) {
+  return {
+    expectedStrokes: nt, userStrokes: 0, rawStrokes: 0, missingStrokes: nt, extraStrokes: 0,
+    outOfOrderStrokes: 0, reversedStrokes: 0,
+    order: 0, direction: 0, shape: 0, placement: 0, strokeShapeAvg: 0, strokeShapeMin: 0,
+    inkShape: 0, inkShapeUniform: 0, sizeRatio: 0, aspectRatio: 0, offset: 0,
+    overshoot: 0, gap: 0, joins: 0, splitPieces: 0, mergedPieces: 0, altForm: 0,
+    otherCharMargin: 0, uncappedScore: 0,
+  };
 }
 
 /**

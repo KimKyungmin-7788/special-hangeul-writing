@@ -276,3 +276,33 @@ test('피드백 문구가 나온다', () => {
   const msgs = feedbackKo(evaluate('ㄷ', [s[1], s[0]]));
   assert.ok(msgs.some((m) => m.includes('순서')));
 });
+
+test('측정값(measures)은 모든 글자에서 같은 열을 유한한 숫자로 낸다', () => {
+  const keys = Object.keys(evaluate('ㄱ', []).measures);
+  for (const ch of listChars()) for (const st of [perfect(ch), perfect(ch).map((s) => jitter(s, 0.04)), []]) {
+    const m = evaluate(ch, st).measures;
+    assert.deepEqual(Object.keys(m), keys, ch);
+    for (const [k, v] of Object.entries(m)) assert.ok(Number.isFinite(v), `${ch} ${k}=${v}`);
+  }
+});
+
+// 교사가 표본에 고른 문제(teacherIssues)와 엔진이 찾은 문제를 견준다. 아직 표본이 적어 실패로 보지 않고 숫자만 알린다.
+test('교사가 고른 문제와 엔진 문제 비교 (보고만)', async (t) => {
+  const fs = await import('node:fs');
+  const dir = new URL('./samples/', import.meta.url);
+  let labeled = 0, picked = 0, found = 0, extra = 0;
+  const missed = {};
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
+    const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
+    for (const s of data.samples || [data]) {
+      if (!Array.isArray(s.teacherIssues) || s.disputed) continue;
+      const got = codes(evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }));
+      labeled++; picked += s.teacherIssues.length;
+      for (const c of s.teacherIssues) if (got.includes(c)) found++; else missed[c] = (missed[c] || 0) + 1;
+      extra += got.filter((c) => !s.teacherIssues.includes(c)).length;
+    }
+  }
+  t.diagnostic(labeled
+    ? `문제 표시 표본 ${labeled}개: 교사가 고른 문제 ${picked}개 중 엔진이 찾음 ${found}개, 엔진만 짚음 ${extra}개, 놓친 문제 ${JSON.stringify(missed)}`
+    : '문제 표시가 있는 표본이 아직 없음');
+});
