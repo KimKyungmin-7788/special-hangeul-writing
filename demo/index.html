@@ -110,6 +110,8 @@
   .iss { font-size: 13px; }
   .iss .miss { color: var(--bad); }
   .iss .extra { color: var(--muted); }
+  .say { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; background: #eef2ff; border-radius: 10px; font-size: 14px; }
+  .say button { flex: 0 0 auto; min-height: 36px; padding: 4px 10px; font: inherit; font-size: 13px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; cursor: pointer; }
   .samples { grid-column: 1 / -1; }
   .app-foot { max-width: 1100px; margin: 0 auto; padding: 4px 16px 24px; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
   .app-foot a { color: var(--muted); }
@@ -182,6 +184,7 @@
       <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
       <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
       <label class="toggle"><input type="checkbox" id="penOnly"> 펜슬만 받기 (손바닥 터치 무시)</label>
+      <label class="toggle"><input type="checkbox" id="voiceOn" checked> 소리로 알려 주기</label>
       <label class="toggle">자동 제출 <input type="number" id="autoSec" min="0" max="10" step="0.5" value="3" inputmode="decimal"> 초 (0이면 끔)</label>
     </div>
   </section>

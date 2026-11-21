@@ -306,3 +306,20 @@ test('교사가 고른 문제와 엔진 문제 비교 (보고만)', async (t) =>
     ? `문제 표시 표본 ${labeled}개: 교사가 고른 문제 ${picked}개 중 엔진이 찾음 ${found}개, 엔진만 짚음 ${extra}개, 놓친 문제 ${JSON.stringify(missed)}`
     : '문제 표시가 있는 표본이 아직 없음');
 });
+
+test('소리 피드백은 가장 중요한 문제 하나를 짧게, 문제 없고 점수 좋으면 말하지 않음', async () => {
+  const { speechKo } = await import('../src/feedback-ko.js');
+  assert.equal(speechKo(evaluate('ㄱ', perfect('ㄱ'))), null);
+  const g = getTemplate('ㄱ').strokes[0].points;
+  assert.equal(speechKo(evaluate('ㄱ', [jitter(g.slice(0, 16)), jitter(g.slice(15))])), '한 획은 한 번에 그어요.');
+  const e = perfect('ㅔ');
+  e[0] = jitter([{ x: 0.27, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.73, y: 0.5 }]);
+  assert.equal(speechKo(evaluate('ㅔ', e)), '첫 번째 획이 넘어갔어요. 닿는 곳에서 멈춰요.');
+  assert.equal(speechKo(evaluate('ㄱ', [])), '칸 안에 글자를 써 봐요.');
+  // 문제 코드마다 한 문장(40자 이내)
+  for (const ch of listChars()) for (const st of [perfect(ch).reverse(), perfect(ch).map((s) => [...s].reverse()), perfect(ch).slice(1)]) {
+    const r = evaluate(ch, st);
+    const line = speechKo(r);
+    if (r.issues.length) assert.ok(line && line.length <= 40, `${ch} ${r.issues.map((i) => i.code)}: ${line}`);
+  }
+});

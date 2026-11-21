@@ -72,4 +72,37 @@ export function feedbackKo(result) {
   return msgs;
 }
 
+// 소리로 들려줄 짧은 한 문장. 가장 중요한 문제 하나만 말한다.
+// 문제가 없고 점수도 괜찮으면 null(말하지 않음). 숫자는 소리로 읽기 쉽게 우리말로 쓴다(1번째 → 첫 번째).
+const ORDINAL = ['첫', '두', '세', '네', '다섯', '여섯'];
+const nthSpoken = (i) => `${ORDINAL[i] || i + 1} 번째 획`;
+const SPEAK_FIRST = ['WRONG_CHAR', 'STROKES_JOINED', 'STROKE_SPLIT', 'ALT_FORM', 'MISSING_STROKE', 'EXTRA_STROKE',
+  'WRONG_ORDER', 'WRONG_DIRECTION', 'OVERSHOOT', 'GAP', 'SHAPE', 'TOO_SMALL', 'TOO_BIG', 'OFF_CENTER'];
+export const SPEAK_BELOW = 70; // 문제 코드가 없어도 이 점수보다 낮으면 말해 준다
+
+export function speechKo(result) {
+  const it = SPEAK_FIRST.map((c) => result.issues.find((i) => i.code === c)).find(Boolean);
+  const name = getTemplate(result.char).name;
+  const n = getTemplate(result.char).strokes.length;
+  if (!it) return result.issues.some((i) => i.code === 'EMPTY') ? '칸 안에 글자를 써 봐요.'
+    : result.score < SPEAK_BELOW ? '안내선을 보고 다시 써 봐요.' : null;
+  switch (it.code) {
+    case 'WRONG_CHAR': return `다른 글자처럼 보여요. ${name}을 다시 써 봐요.`;
+    case 'STROKES_JOINED': return '이어 쓰지 말고, 획을 나눠서 써요.';
+    case 'STROKE_SPLIT': return '한 획은 한 번에 그어요.';
+    case 'ALT_FORM': return `${name}은 ${KOR_COUNT[n] || n} 획으로 써요.`;
+    case 'MISSING_STROKE': return '빠진 획이 있어요.';
+    case 'EXTRA_STROKE': return '획을 더 그었어요.';
+    case 'WRONG_ORDER': return '획순이 달라요. 시범을 보고 따라 써요.';
+    case 'WRONG_DIRECTION': return `${nthSpoken(it.strokes[0])}을 반대로 그었어요.`;
+    case 'OVERSHOOT': return `${nthSpoken(it.stroke)}이 넘어갔어요. 닿는 곳에서 멈춰요.`;
+    case 'GAP': return `${nthSpoken(it.stroke)}이 닿지 않았어요.`;
+    case 'SHAPE': return `${nthSpoken(it.stroke)} 모양을 안내선에 맞춰요.`;
+    case 'TOO_SMALL': return '조금 더 크게 써요.';
+    case 'TOO_BIG': return '조금 더 작게 써요.';
+    case 'OFF_CENTER': return '칸 가운데에 써요.';
+  }
+  return null;
+}
+
 // ㄱ/ㄴ 받침 여부로 조사를 고르는 대신 위처럼 '은(는)'을 썼다. 앱에서 조사 처리가 필요하면 여기서 바꾼다.

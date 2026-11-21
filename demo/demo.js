@@ -1,6 +1,6 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
-import { feedbackKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
+import { feedbackKo, speechKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
 import { copyText } from './copy.js';
 
 const $ = (id) => document.getElementById(id);
@@ -91,6 +91,7 @@ pad.addEventListener('pointerdown', (e) => {
   if ($('penOnly').checked && e.pointerType !== 'pen') return;
   e.preventDefault();
   cancelAuto(); // 다음 획을 시작하면 자동 제출 타이머 취소
+  voice.stop(); // 다시 쓰기 시작하면 말하던 피드백을 멈춘다
   leaveViewing();
   activePointer = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
@@ -377,6 +378,39 @@ const scratch = (() => {
   };
 })();
 
+// ---------- 소리 피드백 (브라우저 음성 합성) ----------
+// 기기에 설치된 한국어 음성을 먼저 고른다. 없으면 브라우저가 주는 한국어 음성(네트워크일 수 있음)을 쓴다.
+// 읽는 글은 피드백 문장뿐이고, 학생이 쓴 글씨는 보내지 않는다. 한국어 음성이 없으면 말하지 않는다.
+const voice = (() => {
+  const synth = window.speechSynthesis;
+  let ko = null, unlocked = false;
+  const pick = () => {
+    const vs = (synth ? synth.getVoices() : []).filter((v) => /^ko/i.test(v.lang));
+    ko = vs.find((v) => v.localService) || vs[0] || null;
+  };
+  if (synth) { pick(); synth.addEventListener?.('voiceschanged', pick); }
+  return {
+    // 아이패드 사파리는 첫 소리를 손가락으로 누를 때 내야 이후 자동으로도 말할 수 있다
+    unlock() {
+      if (!synth || unlocked) return;
+      unlocked = true;
+      try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); } catch {}
+    },
+    say(text) {
+      if (!synth || !text) return;
+      if (!ko) pick();
+      if (!ko) return;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.voice = ko; u.lang = ko.lang; u.rate = 0.95;
+      synth.speak(u);
+    },
+    stop() { if (synth && synth.speaking) synth.cancel(); },
+    available: () => !!synth,
+  };
+})();
+document.addEventListener('pointerdown', () => voice.unlock(), { capture: true });
+
 // ---------- 획순 애니메이션 ----------
 async function animate() {
   if (animating) return;
@@ -413,6 +447,8 @@ function score() {
   const a = { id: ++attemptSeq, char: current, strokes, device, result: r, n: attempts.filter((x) => x.char === current).length + 1 };
   attempts.push(a);
   showResult(r, a);
+  // 점수가 낮거나, 높아도 고칠 점이 있으면 한 문장으로 말해 준다
+  if ($('voiceOn').checked) voice.say(speechKo(r));
   sendToCarousel(a); // 쓴 칸이 아래 캐러셀로 날아가 쌓이고
   strokes = [];      // 큰 쓰기 칸은 자동으로 비워 새 글쓰기를 준비한다
   redraw();
@@ -433,6 +469,14 @@ function showResult(r, attempt) {
   const ul = document.createElement('ul');
   for (const m of feedbackKo(r)) { const li = document.createElement('li'); li.textContent = m; ul.append(li); }
   el.append(ul);
+  const line = speechKo(r);
+  if (line && voice.available()) {
+    const say = document.createElement('div'); say.className = 'say';
+    const txt = document.createElement('span'); txt.textContent = `🔊 ${line}`;
+    const again = document.createElement('button'); again.type = 'button'; again.textContent = '다시 듣기';
+    again.onclick = () => voice.say(line);
+    say.append(txt, again); el.append(say);
+  }
   if (attempt) el.append(calibForm(r, attempt));
   renderGrid();
 }
@@ -623,7 +667,8 @@ $('clearBtn').onclick = () => { cancelAuto(); leaveViewing(); strokes = []; toas
 $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
-for (const id of ['penOnly', 'device', 'autoSec']) {
+$('voiceOn').addEventListener('change', () => { if (!$('voiceOn').checked) voice.stop(); });
+for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn']) {
   const el = $(id), key = 'hw-pref-' + id;
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
