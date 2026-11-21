@@ -185,6 +185,111 @@ function sendToCarousel(a) {
   anim.onfinish = () => { img.remove(); card.style.opacity = ''; };
 }
 
+// ---------- 획순 시범(모델링) ----------
+// 쓰기 칸 오른쪽에 같은 크기로 서서, 글자를 획순대로 쓰는 모습을 계속 되풀이해 보여 준다.
+// 켜고 끄기(획순 시범 버튼)와 재생·멈춤(칸 오른쪽 위 버튼)은 이 기기에 기억한다.
+const model = $('model'), mctx = model.getContext('2d');
+const modelWrap = $('modelWrap'), modelPlayBtn = $('modelPlay'), modelBtn = $('modelBtn');
+const MODEL_ON_KEY = 'hw-pref-modelOn', MODEL_PLAY_KEY = 'hw-pref-modelPlay';
+const MODEL_GAP = 300, MODEL_HOLD = 1400; // 획 사이 쉼, 다 쓴 뒤 멈춰 보여 주는 시간(ms)
+let modelOn = true, modelPlaying = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+try {
+  const on = localStorage.getItem(MODEL_ON_KEY); if (on !== null) modelOn = on === '1';
+  const pl = localStorage.getItem(MODEL_PLAY_KEY); if (pl !== null) modelPlaying = pl === '1';
+} catch {}
+let modelT = 0, modelLast = null, modelRaf = null;
+
+const strokeLen = (pts) => pts.slice(1).reduce((a, p, i) => a + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+// 획마다 [시작, 끝] 시각. 긴 획은 조금 더 천천히
+function modelPlan() {
+  let t = 0;
+  const spans = getTemplate(current).strokes.map((s, i) => {
+    const d = 350 + strokeLen(s.points) * 1100;
+    const span = [t + (i ? MODEL_GAP : 0), t + (i ? MODEL_GAP : 0) + d];
+    t = span[1];
+    return span;
+  });
+  return { spans, total: t + MODEL_HOLD };
+}
+
+function fitModel() {
+  const dpr = window.devicePixelRatio || 1, size = model.clientWidth;
+  if (!size) return;
+  model.width = size * dpr; model.height = size * dpr;
+  mctx.setTransform(dpr * size, 0, 0, dpr * size, 0, 0);
+  drawModel();
+}
+
+function drawModel() {
+  if (!modelOn) return;
+  const c = mctx, { spans, total } = modelPlan();
+  const t = modelT % total;
+  const seg = (pts, color, w) => {
+    if (!pts.length) return;
+    c.strokeStyle = color; c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) c.lineTo(p.x, p.y);
+    if (pts.length === 1) c.lineTo(pts[0].x + 0.001, pts[0].y);
+    c.stroke();
+  };
+  c.clearRect(0, 0, 1, 1);
+  c.save(); c.setLineDash([0.015, 0.015]);
+  seg([{ x: 0.5, y: 0 }, { x: 0.5, y: 1 }], css('--line'), 0.004);
+  seg([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004);
+  c.restore();
+  const tpl = getTemplate(current).strokes;
+  tpl.forEach((s) => seg(s.points, css('--guide'), 0.07)); // 글자 전체를 옅게
+  tpl.forEach((s, i) => {
+    const [a, b] = spans[i];
+    if (t < a) return;
+    const k = Math.min(1, (t - a) / (b - a));
+    const pts = s.points.slice(0, Math.max(1, Math.ceil(s.points.length * k)));
+    seg(pts, css('--pen'), 0.04);
+    // 지금 쓰는 획은 펜 끝을 보여 준다
+    if (k < 1) { const p = pts[pts.length - 1]; c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.018, 0, Math.PI * 2); c.fill(); }
+  });
+  // 획 번호: 이미 시작한 획과 다음에 쓸 획의 시작점
+  tpl.forEach((s, i) => {
+    if (t < spans[i][0] && !(i === 0 || t >= spans[i - 1][1])) return;
+    const p = s.points[0];
+    c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.022, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#fff'; c.font = 'bold 0.03px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(String(i + 1), p.x, p.y + 0.001);
+  });
+}
+
+function modelTick(ts) {
+  // 탭을 오래 비웠다 돌아와도 건너뛰지 않게 한 번에 0.1초까지만 넘긴다
+  if (modelLast !== null) modelT += Math.min(100, ts - modelLast);
+  modelLast = ts;
+  drawModel();
+  modelRaf = requestAnimationFrame(modelTick);
+}
+function syncModel() {
+  modelWrap.hidden = !modelOn;
+  document.querySelector('main').classList.toggle('with-model', modelOn);
+  modelBtn.setAttribute('aria-pressed', String(modelOn));
+  modelPlayBtn.textContent = modelPlaying ? '❚❚' : '▶';
+  modelPlayBtn.setAttribute('aria-label', modelPlaying ? '획순 시범 멈추기' : '획순 시범 재생');
+  if (modelRaf) cancelAnimationFrame(modelRaf);
+  modelRaf = null; modelLast = null;
+  if (modelOn && modelPlaying) modelRaf = requestAnimationFrame(modelTick);
+  else drawModel();
+}
+// 글자가 바뀌면 처음부터
+function resetModel() { modelT = 0; drawModel(); }
+modelBtn.onclick = () => {
+  modelOn = !modelOn;
+  try { localStorage.setItem(MODEL_ON_KEY, modelOn ? '1' : '0'); } catch {}
+  syncModel();
+  setPadSize(padWanted, false); // 켜면 두 칸이 나란히 들어가도록 쓰기 칸을 줄이고, 끄면 되돌린다
+};
+modelPlayBtn.onclick = () => {
+  modelPlaying = !modelPlaying;
+  try { localStorage.setItem(MODEL_PLAY_KEY, modelPlaying ? '1' : '0'); } catch {}
+  syncModel();
+};
+
 function loadAttempt(id) {
   const a = attempts.find((x) => x.id === id);
   if (!a) return;
@@ -194,6 +299,7 @@ function loadAttempt(id) {
   if (g !== group) { group = g; chars = listChars(group); }
   current = a.char;
   strokes = a.strokes.map((st) => st.map((p) => ({ ...p })));
+  resetModel();
   toast('불러온 글씨예요. 펜을 대면 새로 쓰기 시작해요.');
   redraw();
   showResult(a.result, a);
@@ -487,7 +593,7 @@ function select(ch) {
   if (viewing) { viewing = null; renderCarousel(); }
   current = ch; strokes = []; toast('');
   $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
-  renderGrid(); redraw();
+  renderGrid(); redraw(); resetModel();
 }
 
 function toast(msg) { $('toast').textContent = msg; }
@@ -502,25 +608,31 @@ for (const id of ['penOnly', 'device', 'autoSec']) {
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
 }
-window.addEventListener('resize', () => { setPadSize(padSize, false); });
+window.addEventListener('resize', () => { setPadSize(padWanted, false); });
 
 // ---------- 쓰기 칸 크기 조절 ----------
 // 획은 칸 기준 0~1 좌표로 저장되므로 크기를 바꿔도 그대로 맞춰 다시 그려지고 채점도 같다.
 const PAD_MIN = 200, PAD_STEP = 20, PAD_KEY = 'hw-pref-padSize';
 const padWrap = $('padWrap'), padHandle = $('padResize'), padLabel = $('padSizeLabel');
 let padSize = 420;
+let padWanted = 420; // 선생님이 고른 크기. 모델링을 켜서 줄어들어도 끄면 이 크기로 돌아온다
 const padMax = () => {
-  const stage = padWrap.parentElement, cs = getComputedStyle(stage);
-  return Math.max(PAD_MIN, stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+  const stage = padWrap.closest('.stage'), cs = getComputedStyle(stage);
+  const inner = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  // 모델링을 켜면 쓰기 칸과 모델링 칸이 사이 12px를 두고 나란히 들어가야 한다
+  return modelOn ? (inner - 12) / 2 : inner;
 };
 function setPadSize(px, save = true) {
-  padSize = Math.round(Math.max(PAD_MIN, Math.min(padMax(), px)));
+  const max = padMax();
+  padSize = Math.round(Math.max(Math.min(PAD_MIN, max), Math.min(max, px)));
+  if (save) padWanted = padSize;
   document.documentElement.style.setProperty('--pad-size', padSize + 'px');
   padHandle.setAttribute('aria-valuemax', String(Math.round(padMax())));
   padHandle.setAttribute('aria-valuenow', String(padSize));
   padHandle.setAttribute('aria-valuetext', `${padSize}픽셀`);
   padLabel.textContent = `${padSize}px`;
   fitCanvas();
+  fitModel();
   if (save) { try { localStorage.setItem(PAD_KEY, String(padSize)); } catch {} }
 }
 let padDrag = null;
@@ -548,12 +660,13 @@ padHandle.addEventListener('keydown', (e) => {
   const d = { ArrowRight: PAD_STEP, ArrowUp: PAD_STEP, ArrowLeft: -PAD_STEP, ArrowDown: -PAD_STEP }[e.key];
   if (d) { e.preventDefault(); setPadSize(padSize + d); }
 });
-try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = saved; } catch {}
+try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = padWanted = saved; } catch {}
 
 renderGrid();
 renderCarousel();
 renderSamples();
-setPadSize(padSize, false);
+syncModel();
+setPadSize(padWanted, false);
 
 // 브라우저 콘솔에서 자동 확인할 때 쓰는 손잡이
 window.__hw = { evaluate, getTemplate, setStrokes: (s) => { strokes = s; redraw(); }, score, select };

@@ -30,7 +30,9 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
   main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; gap: 16px; max-width: 1100px; margin: 0 auto; padding: 16px; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  /* 칸 크기를 화면 너비로 계산하므로, 패널이 내용(칸 두 개) 때문에 넓어지지 않게 한다 */
+  main > .panel { min-width: 0; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
   h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; }
   .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
@@ -47,7 +49,24 @@
   button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   label.toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; }
   /* 쓰기 칸: 오른쪽 아래 손잡이를 끌어 크기를 바꾼다(--pad-size) */
-  .pad-wrap { position: relative; width: min(100%, var(--pad-size, 420px)); }
+  /* 쓰기 칸과 모델링(획순 시범)을 나란히 둔다. 모델링은 쓰기 칸 오른쪽에, 같은 크기로 */
+  .pad-row { display: flex; gap: 12px; justify-content: center; align-items: flex-start; width: 100%; }
+  .pad-wrap { position: relative; width: min(100%, var(--pad-size, 420px)); flex: 0 0 auto; }
+  .model-wrap { position: relative; width: var(--pad-size, 420px); flex: 0 0 auto; }
+  .model-wrap[hidden] { display: none; }
+  #model { width: 100%; aspect-ratio: 1; background: #fbfbf9; border: 1px solid var(--line); border-radius: var(--radius); display: block; touch-action: auto; }
+  /* 넓은 화면에서 모델링을 켜면 글자 목록을 위 한 줄로 올려 두 칸이 넉넉히 들어가게 한다 */
+  @media (min-width: 861px) {
+    main.with-model { grid-template-columns: minmax(0, 1fr) 300px; }
+    main.with-model > .panel:first-child { grid-column: 1 / -1; }
+    main.with-model .grid { grid-template-columns: repeat(auto-fill, minmax(48px, 60px)); }
+  }
+  /* 재생·멈춤은 칸 아래에 둬서 획을 가리지 않게 */
+  .model-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .model-cap { font-size: 13px; color: var(--muted); }
+  .model-play { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .model-play:focus-visible, #modelBtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #modelBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   .pad-resize { position: absolute; right: -14px; bottom: -14px; width: 40px; height: 40px; border-radius: 50%; touch-action: none; cursor: nwse-resize; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .pad-resize::before { content: ""; width: 14px; height: 14px; border-right: 3px solid var(--muted); border-bottom: 3px solid var(--muted); border-radius: 0 0 3px 0; }
   .pad-resize:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -128,7 +147,9 @@
       <button class="btn" id="animBtn">▶ 획순 보기</button>
       <button class="btn" id="clearBtn">↺ 다시 쓰기</button>
       <button class="btn primary" id="doneBtn">다 썼어요</button>
+      <button class="btn" id="modelBtn" type="button" aria-pressed="true" aria-controls="modelWrap">획순 시범</button>
     </div>
+    <div class="pad-row" id="padRow">
     <div class="pad-wrap" id="padWrap">
       <canvas id="pad" width="420" height="420"></canvas>
       <div class="pad-resize" id="padResize" role="slider" tabindex="0" aria-label="쓰기 칸 크기" aria-valuemin="200" title="끌어서 칸 크기 조절"></div>
@@ -138,6 +159,14 @@
         <circle class="ring" id="autoRing" cx="18" cy="18" r="15"></circle>
         <text id="autoNum" x="18" y="18"></text>
       </svg>
+    </div>
+    <div class="model-wrap" id="modelWrap">
+      <canvas id="model" width="420" height="420" role="img" aria-label="획순 시범"></canvas>
+      <div class="model-bar">
+        <span class="model-cap">보고 따라 써요</span>
+        <button class="model-play" id="modelPlay" type="button" aria-label="획순 시범 멈추기">❚❚</button>
+      </div>
+    </div>
     </div>
     <div class="toast" id="toast" aria-live="polite"></div>
     <div class="carousel-wrap">
