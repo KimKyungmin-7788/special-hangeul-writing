@@ -35,6 +35,23 @@ function line(points, color, width) {
   ctx.stroke();
 }
 
+// 획의 앞부분 k(0~1, 길이 비율)만 잘라 낸다. 끝점은 점 사이를 보간해서, 그리는 동안 선이 매끄럽게 자란다
+function partialPath(pts, k) {
+  if (k >= 1 || pts.length < 2) return pts;
+  const seg = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y));
+  let left = seg.reduce((a, v) => a + v, 0) * Math.max(0, k);
+  const out = [pts[0]];
+  for (let i = 0; i < seg.length; i++) {
+    if (left <= seg[i]) {
+      const t = seg[i] ? left / seg[i] : 0, a = pts[i], b = pts[i + 1];
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      return out;
+    }
+    left -= seg[i]; out.push(pts[i + 1]);
+  }
+  return out;
+}
+
 function drawGuide(upto = Infinity, partial = 1) {
   ctx.save();
   ctx.setLineDash([0.015, 0.015]);
@@ -44,7 +61,7 @@ function drawGuide(upto = Infinity, partial = 1) {
   if (!$('guideOn').checked && upto === Infinity) return;
   getTemplate(current).strokes.forEach((s, i) => {
     if (i > upto) return;
-    const pts = i === upto ? s.points.slice(0, Math.max(1, Math.ceil(s.points.length * partial))) : s.points;
+    const pts = i === upto ? partialPath(s.points, partial) : s.points;
     line(pts, css('--guide'), 0.07);
     // 획 번호와 시작점
     const p = s.points[0];
@@ -243,7 +260,7 @@ function drawModel() {
     const [a, b] = spans[i];
     if (t < a) return;
     const k = Math.min(1, (t - a) / (b - a));
-    const pts = s.points.slice(0, Math.max(1, Math.ceil(s.points.length * k)));
+    const pts = partialPath(s.points, k);
     seg(pts, css('--pen'), 0.04);
     // 지금 쓰는 획은 펜 끝을 보여 준다
     if (k < 1) { const p = pts[pts.length - 1]; c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.018, 0, Math.PI * 2); c.fill(); }
@@ -366,11 +383,14 @@ async function animate() {
   cancelAuto();
   animating = true;
   const n = getTemplate(current).strokes.length;
+  // 화면 갱신마다(requestAnimationFrame) 지난 시간으로 그려서 끊기지 않게
+  const frame = () => new Promise((r) => requestAnimationFrame(r));
   for (let i = 0; i < n; i++) {
-    for (let t = 0; t <= 1.001; t += 0.05) {
+    const dur = 500, t0 = performance.now();
+    for (let t = 0; t < 1;) {
+      t = Math.min(1, (await frame() - t0) / dur);
       ctx.clearRect(0, 0, 1, 1);
       drawGuide(i, t);
-      await new Promise((r) => setTimeout(r, 25));
     }
     await new Promise((r) => setTimeout(r, 250));
   }
