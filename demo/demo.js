@@ -97,6 +97,7 @@ pad.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   cancelAuto(); // 다음 획을 시작하면 자동 제출 타이머 취소
   voice.stop(); // 다시 쓰기 시작하면 말하던 피드백을 멈춘다
+  cancelAdvance(); // 넘어가기 전에 다시 쓰기 시작하면 이 글자에 머문다
   leaveViewing();
   activePointer = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
@@ -468,6 +469,26 @@ function score() {
   sendToCarousel(a); // 쓴 칸이 아래 캐러셀로 날아가 쌓이고
   strokes = [];      // 큰 쓰기 칸은 자동으로 비워 새 글쓰기를 준비한다
   redraw();
+  if (r.grade === 'S' && $('autoNext').checked) scheduleAdvance();
+}
+
+// ---------- S를 받으면 다음 글자로 ----------
+// 잠깐 칭찬을 보여 준 뒤 다음 글자로 넘어간다. 결과 칸(교사 표본 입력)은 그대로 두어, 넘어간 뒤에도 표본을 저장할 수 있다.
+// 그사이 다시 쓰기 시작하거나 다른 글자를 고르면 넘어가지 않는다.
+const ADVANCE_MS = 1300;
+let advanceTimer = null;
+function cancelAdvance() { if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; } }
+function scheduleAdvance() {
+  cancelAdvance();
+  const i = chars.indexOf(current);
+  if (i < 0 || i === chars.length - 1) { toast(`S! ${GROUP_NAME[group]} 마지막 글자까지 왔어요.`); return; }
+  const next = chars[i + 1];
+  toast(`S! 다음 글자 '${next}'로 넘어가요.`);
+  advanceTimer = setTimeout(() => {
+    advanceTimer = null;
+    current = next; strokes = []; toast('');
+    renderGrid(); redraw(); resetModel();
+  }, ADVANCE_MS);
 }
 
 function showResult(r, attempt) {
@@ -775,7 +796,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 });
 
 function select(ch) {
-  cancelAuto();
+  cancelAuto(); cancelAdvance();
   if (viewing) { viewing = null; renderCarousel(); }
   current = ch; strokes = []; toast('');
   $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
@@ -785,12 +806,12 @@ function select(ch) {
 function toast(msg) { $('toast').textContent = msg; }
 
 $('animBtn').onclick = animate;
-$('clearBtn').onclick = () => { cancelAuto(); leaveViewing(); strokes = []; toast(''); redraw(); };
+$('clearBtn').onclick = () => { cancelAuto(); cancelAdvance(); leaveViewing(); strokes = []; toast(''); redraw(); };
 $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
 $('voiceOn').addEventListener('change', () => { if (!$('voiceOn').checked) voice.stop(); });
-for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn']) {
+for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn', 'autoNext']) {
   const el = $(id), key = 'hw-pref-' + id;
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
