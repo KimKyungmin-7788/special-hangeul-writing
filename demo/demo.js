@@ -208,12 +208,15 @@ function sendToCarousel(a) {
 // 켜고 끄기(획순 시범 버튼)와 재생·멈춤(칸 오른쪽 위 버튼)은 이 기기에 기억한다.
 const model = $('model'), mctx = model.getContext('2d');
 const modelWrap = $('modelWrap'), modelPlayBtn = $('modelPlay'), modelBtn = $('modelBtn');
-const MODEL_ON_KEY = 'hw-pref-modelOn', MODEL_PLAY_KEY = 'hw-pref-modelPlay';
+const MODEL_ON_KEY = 'hw-pref-modelOn', MODEL_PLAY_KEY = 'hw-pref-modelPlay', MODEL_SPEED_KEY = 'hw-pref-modelSpeed';
+const speedBtns = [...document.querySelectorAll('.speed button')];
+let modelSpeed = 1; // 0.6 느리게, 1 보통, 1.6 빠르게
 const MODEL_GAP = 300, MODEL_HOLD = 1400; // 획 사이 쉼, 다 쓴 뒤 멈춰 보여 주는 시간(ms)
 let modelOn = true, modelPlaying = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 try {
   const on = localStorage.getItem(MODEL_ON_KEY); if (on !== null) modelOn = on === '1';
   const pl = localStorage.getItem(MODEL_PLAY_KEY); if (pl !== null) modelPlaying = pl === '1';
+  const sp = Number(localStorage.getItem(MODEL_SPEED_KEY)); if (speedBtns.some((b) => Number(b.dataset.speed) === sp)) modelSpeed = sp;
 } catch {}
 let modelT = 0, modelLast = null, modelRaf = null;
 
@@ -256,13 +259,13 @@ function drawModel() {
   seg([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004);
   c.restore();
   const tpl = getTemplate(current).strokes;
-  tpl.forEach((s) => seg(s.points, css('--guide'), 0.07)); // 글자 전체를 옅게
+  tpl.forEach((s) => seg(s.points, css('--model-under'), 0.07)); // 글자 전체를 아주 옅게
   tpl.forEach((s, i) => {
     const [a, b] = spans[i];
     if (t < a) return;
     const k = Math.min(1, (t - a) / (b - a));
     const pts = partialPath(s.points, k);
-    seg(pts, css('--pen'), 0.04);
+    seg(pts, css('--model-ink'), 0.05);
     // 지금 쓰는 획은 펜 끝을 보여 준다
     if (k < 1) { const p = pts[pts.length - 1]; c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.018, 0, Math.PI * 2); c.fill(); }
   });
@@ -278,7 +281,7 @@ function drawModel() {
 
 function modelTick(ts) {
   // 탭을 오래 비웠다 돌아와도 건너뛰지 않게 한 번에 0.1초까지만 넘긴다
-  if (modelLast !== null) modelT += Math.min(100, ts - modelLast);
+  if (modelLast !== null) modelT += Math.min(100, ts - modelLast) * modelSpeed;
   modelLast = ts;
   drawModel();
   modelRaf = requestAnimationFrame(modelTick);
@@ -287,6 +290,7 @@ function syncModel() {
   modelWrap.hidden = !modelOn;
   document.querySelector('main').classList.toggle('with-model', modelOn);
   modelBtn.setAttribute('aria-pressed', String(modelOn));
+  speedBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === modelSpeed)));
   modelPlayBtn.textContent = modelPlaying ? '❚❚' : '▶';
   modelPlayBtn.setAttribute('aria-label', modelPlaying ? '획순 시범 멈추기' : '획순 시범 재생');
   if (modelRaf) cancelAnimationFrame(modelRaf);
@@ -301,6 +305,11 @@ modelBtn.onclick = () => {
   try { localStorage.setItem(MODEL_ON_KEY, modelOn ? '1' : '0'); } catch {}
   syncModel();
   setPadSize(padWanted, false); // 켜면 두 칸이 나란히 들어가도록 쓰기 칸을 줄이고, 끄면 되돌린다
+};
+for (const b of speedBtns) b.onclick = () => {
+  modelSpeed = Number(b.dataset.speed);
+  try { localStorage.setItem(MODEL_SPEED_KEY, String(modelSpeed)); } catch {}
+  syncModel();
 };
 modelPlayBtn.onclick = () => {
   modelPlaying = !modelPlaying;

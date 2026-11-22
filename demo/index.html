@@ -26,6 +26,7 @@
     --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2433; --muted: #6b7280; --line: #e3e1da;
     --accent: #3b5bdb; --good: #2f9e44; --warn: #e8590c; --bad: #c92a2a;
     --guide: rgba(59, 91, 219, 0.13); --pen: #1d2433; --radius: 14px;
+    --model-ink: #b4b8bf; --model-under: #eceef1; /* 획순 시범: 옅은 회색 글자, 더 옅은 바탕 */
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
@@ -62,7 +63,12 @@
     main.with-model .grid { grid-template-columns: repeat(auto-fill, minmax(48px, 60px)); }
   }
   /* 재생·멈춤은 칸 아래에 둬서 획을 가리지 않게 */
-  .model-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .model-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; margin-top: 6px; }
+  .speed { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .speed button { font: inherit; font-size: 13px; min-height: 36px; padding: 4px 10px; border: 0; background: #fff; color: var(--ink); cursor: pointer; }
+  .speed button + button { border-left: 1px solid var(--line); }
+  .speed button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .speed button:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
   .model-cap { font-size: 13px; color: var(--muted); }
   .model-play { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
   .model-play:focus-visible, #modelBtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -165,7 +171,11 @@
     <div class="model-wrap" id="modelWrap">
       <canvas id="model" width="420" height="420" role="img" aria-label="획순 시범"></canvas>
       <div class="model-bar">
-        <span class="model-cap">보고 따라 써요</span>
+        <div class="speed" role="group" aria-label="시범 속도">
+          <button type="button" data-speed="0.6" aria-pressed="false">느리게</button>
+          <button type="button" data-speed="1" aria-pressed="true">보통</button>
+          <button type="button" data-speed="1.6" aria-pressed="false">빠르게</button>
+        </div>
         <button class="model-play" id="modelPlay" type="button" aria-label="획순 시범 멈추기">❚❚</button>
       </div>
     </div>
