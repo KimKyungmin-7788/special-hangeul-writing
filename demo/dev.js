@@ -229,7 +229,19 @@ function drawReplay() {
   };
   line([{ x: 0.5, y: 0 }, { x: 0.5, y: 1 }], css('--line'), 0.004, [0.015, 0.015]);
   line([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004, [0.015, 0.015]);
-  if ($('guide')?.checked) { const tpl = getTemplate(player.data.ch); if (tpl) tpl.strokes.forEach((s) => line(s.points, css('--guide'), 0.07)); }
+  if ($('guide')?.checked) {
+    const tpl = getTemplate(player.data.ch);
+    if (tpl) {
+      tpl.strokes.forEach((s) => line(s.points, css('--guide'), 0.07));
+      // 정답 획 번호(흐린 파랑). 학생이 그은 차례는 주황 번호
+      tpl.strokes.forEach((s, i) => {
+        const p = s.points[0];
+        c.fillStyle = 'rgba(59, 91, 219, 0.35)'; c.beginPath(); c.arc(p.x, p.y, 0.02, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#fff'; c.font = 'bold 0.026px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.fillText(String(i + 1), p.x, p.y + 0.001);
+      });
+    }
+  }
   const t = player.t;
   player.data.tl.strokes.forEach((s, i) => {
     if (!s.length || s[0].at > t) return;
@@ -294,7 +306,10 @@ function open(id) {
     speedSeg.append(b);
   }
   const squeeze = el('input', { type: 'checkbox', id: 'squeeze', checked: true });
-  const guide = el('input', { type: 'checkbox', id: 'guide' });
+  // 정답 안내선: 학생이 보고 쓴 글자를 흐리게 뒤에 깔아 둔다(기본 켬, 선택은 기억)
+  let guideOn = true;
+  try { guideOn = localStorage.getItem('hw-dev-guide') !== '0'; } catch {}
+  const guide = el('input', { type: 'checkbox', id: 'guide', checked: guideOn });
   left.append(
     el('canvas', { id: 'replay' }),
     el('progress', { id: 'prog', max: 1, value: 0 }),
@@ -308,7 +323,7 @@ function open(id) {
       el('label', { className: 'chk' }, squeeze, '긴 멈춤 줄이기'),
       el('label', { className: 'chk' }, guide, '정답 안내선')));
   squeeze.onchange = () => { player.data.tl = timeline(r.strokes, squeeze.checked); player.t = Math.min(player.t, player.data.tl.total); drawReplay(); };
-  guide.onchange = drawReplay;
+  guide.onchange = () => { try { localStorage.setItem('hw-dev-guide', guide.checked ? '1' : '0'); } catch {} drawReplay(); };
 
   // 오른쪽: 채점
   const form = el('div', { className: 'form' });
