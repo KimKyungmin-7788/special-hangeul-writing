@@ -105,6 +105,15 @@ const SPEAK_FIRST = ['WRONG_CHAR', 'STROKES_JOINED', 'STROKE_SPLIT', 'ALT_FORM',
   'WRONG_ORDER', 'WRONG_DIRECTION', 'OVERSHOOT', 'GAP', 'SHAPE', 'TOO_SMALL', 'TOO_BIG', 'OFF_CENTER'];
 export const SPEAK_BELOW = 70; // 문제 코드가 없어도 이 점수보다 낮으면 말해 준다
 
+// 엔진이 고른 피드백 상황 코드(개발자 화면에서 교사가 고른 상황과 견줄 때 쓴다).
+// 문제 코드와 같고, 문제가 없으면 'EMPTY' · 'SHAPE'(점수가 낮음) · 'PRAISE'(잘함)
+export function speechCase(result) {
+  const it = SPEAK_FIRST.map((c) => result.issues.find((i) => i.code === c)).find(Boolean);
+  if (it) return it.code;
+  if (result.issues.some((i) => i.code === 'EMPTY')) return 'EMPTY';
+  return result.score < SPEAK_BELOW ? 'SHAPE' : 'PRAISE';
+}
+
 export function speechKo(result) {
   const it = SPEAK_FIRST.map((c) => result.issues.find((i) => i.code === c)).find(Boolean);
   const name = getTemplate(result.char).name;

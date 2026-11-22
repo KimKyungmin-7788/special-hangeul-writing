@@ -1,7 +1,8 @@
 // 글씨 채점실(개발자 전용): 학생·교사가 보낸 글씨를 쓴 순서·빠르기 그대로 다시 보고, 개발자 점수·문제·메모를 붙인다.
 // 엔진 점수는 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '엔진 점수 먼저 보기'로 바꿀 수 있다.
 import { evaluate, getTemplate } from '../src/engine.js';
-import { ISSUE_NAMES_KO, explainKo } from '../src/feedback-ko.js';
+import { ISSUE_NAMES_KO, explainKo, speechKo, speechCase } from '../src/feedback-ko.js';
+import { FEEDBACK_CASES, CASE_BY_ID, CASE_GROUPS } from './feedback-cases.js';
 import { auth, isDev, listAttempts, updateAttempt, deleteAttempt } from './server.js';
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
@@ -105,36 +106,82 @@ try { $('showEngine').checked = localStorage.getItem(SHOW_KEY) === '1'; } catch 
 $('showEngine').onchange = () => { try { localStorage.setItem(SHOW_KEY, $('showEngine').checked ? '1' : '0'); } catch {} if (current) open(current); };
 
 // ---------- 채점 기준표 ----------
-// 교사 표본에서 뽑은 기준을 펼쳐 두고 본다. 채점하다 기준이 흐트러질 때 다시 맞추는 용도.
-const bandText = (b) => b[0] == null && b[1] == null ? '표본 없음' : b[0] == null ? `최고 ${b[1]}` : `${b[0]}~${b[1]}`;
+// 교사 표본에서 뽑은 기준을 펼쳐 두고 본다. 줄을 누르면 그 문제와 대표 점수가 채점 칸에 바로 들어간다.
+const bandText = (b) => b[0] == null && b[1] == null ? '?' : b[0] == null ? `~${b[1]}` : `${b[0]}~${b[1]}`;
+const bandColor = (b) => { const hi = b[1] ?? 100; return hi < 60 ? '#e03131' : hi <= 70 ? '#f08c00' : hi <= 85 ? '#3b5bdb' : '#37b24d'; };
+let activeForm = null; // 지금 열린 글씨의 채점 칸(기준표·피드백 목록에서 바로 채우기용)
+let rubricTab = 'score';
+
+function trackOf(r) {
+  const t = el('div', { className: 'track' });
+  const [lo, hi] = r.band;
+  if (hi != null) {
+    const band = el('span', { className: `band${lo == null ? ' unk' : ''}` });
+    band.style.left = `${lo ?? 0}%`; band.style.width = `${hi - (lo ?? 0)}%`; band.style.background = bandColor(r.band);
+    t.append(band);
+  }
+  if (r.typical != null) { const m = el('span', { className: 'typ', title: `대표 ${r.typical}` }); m.style.left = `${r.typical}%`; t.append(m); }
+  return t;
+}
 function renderRubric() {
   const box = $('rubric'); box.replaceChildren();
-  box.append(el('h2', { textContent: '📋 채점 기준' }),
-    el('p', { className: 'src', textContent: `교사 표본 ${RUBRIC_SAMPLES}개에서 실제로 준 점수로 만듦 (${RUBRIC_DATE}). n은 근거 표본 수.` }));
-  const how = el('ol');
-  for (const t of ['다른 글자로 읽히는지 먼저 본다.', '아래 표에서 가장 위에 걸리는 문제 하나가 점수 범위를 정한다.', '그 범위 안에서 모양(안내선과 얼마나 같은지)으로 더 깎는다.', '범위를 벗어나게 줄 때는 메모에 이유를 남긴다.'])
-    how.append(el('li', { textContent: t }));
-  box.append(how);
-  const g = el('div', { className: 'grades' });
-  for (const [k, v] of GRADES) g.append(el('span', { textContent: `${k} ${v}${k === 'F' ? '~59' : '+'}` }));
-  box.append(g);
-  for (const r of RUBRIC) {
-    const row = el('div', { className: `rb${r.sub ? ' sub' : ''}${r.n ? '' : ' nodata'}` });
-    row.dataset.codes = r.codes.join(' ');
-    row.append(el('div', { className: 'rb-top' }, el('b', { textContent: r.name }),
-      el('span', {}, el('span', { className: 'rb-band', textContent: bandText(r.band) }), ' ', el('span', { className: 'rb-n', textContent: r.n ? `n=${r.n}` : '근거 없음' }))),
-    el('div', { textContent: r.rule }));
-    if (r.look) row.append(el('div', { className: 'look', textContent: `예: ${r.look}` }));
-    box.append(row);
+  const tabs = el('div', { className: 'rb-tabs' });
+  tabs.setAttribute('role', 'tablist');
+  for (const [k, label] of [['score', '점수 기준'], ['feedback', '피드백 상황']]) {
+    const b = el('button', { type: 'button', textContent: label });
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(rubricTab === k));
+    b.onclick = () => { rubricTab = k; renderRubric(); activeForm?.refresh(); };
+    tabs.append(b);
   }
-  const prec = el('div', { className: 'prec' }, el('b', { textContent: '예외로 정한 표본 (원칙은 그대로)' }));
-  const ul = el('ul'); for (const p of PRECEDENTS) ul.append(el('li', { textContent: `${p.ch} ${p.score}점: ${p.decision}` }));
-  prec.append(ul); box.append(prec);
+  box.append(el('div', { className: 'rb-head' }, el('h2', { textContent: '📋 채점 기준' }), tabs));
+  const body = el('div', { className: 'rb-body' });
+  box.append(body);
+  if (rubricTab === 'score') {
+    const scale = el('div', { className: 'scale' });
+    for (const t of ['F ~59', 'C 60', 'B 70', 'A 80', 'S 90']) scale.append(el('span', { textContent: t }));
+    const steps = el('div', { className: 'steps' });
+    for (const [n, t] of [['①', '다른 글자인가'], ['②', '가장 위의 문제 하나가 범위'], ['③', '범위 안에서 모양으로'], ['④', '벗어나면 메모']])
+      steps.append(el('span', {}, el('b', { textContent: n }), ` ${t}`));
+    body.append(scale, steps,
+      el('p', { className: 'rb-tip', textContent: `줄을 누르면 그 문제와 대표 점수(▍)가 바로 들어가요 · 교사 표본 ${RUBRIC_SAMPLES}개 (${RUBRIC_DATE})` }));
+    for (const r of RUBRIC) {
+      const row = el('button', { type: 'button', className: `rb${r.sub ? ' sub' : ''}${r.n ? '' : ' nodata'}` });
+      row.dataset.key = r.name;
+      row.append(
+        el('div', { className: 'rb-top' }, el('b', { textContent: r.name }),
+          el('span', { className: 'rb-band' }, bandText(r.band), el('small', { textContent: r.n ? `표본 ${r.n}` : '표본 필요' })),
+          el('span', { className: 'rb-short', textContent: r.short })),
+        trackOf(r),
+        el('div', { className: 'more' }, el('div', { textContent: r.rule }), r.look ? el('div', { className: 'look', textContent: `예: ${r.look}` }) : ''));
+      row.onclick = () => activeForm?.applyRubric(r);
+      body.append(row);
+    }
+    const prec = el('details', { className: 'prec' }, el('summary', { textContent: `예외로 정한 표본 ${PRECEDENTS.length}개` }));
+    const ul = el('ul'); for (const p of PRECEDENTS) ul.append(el('li', { textContent: `${p.ch} ${p.score}점: ${p.decision}` }));
+    prec.append(ul); body.append(prec);
+  } else {
+    body.append(el('p', { className: 'rb-tip', textContent: '이 글씨를 쓴 학생에게 가장 먼저 해 줄 말 하나를 골라요. 위에 있을수록 먼저 말해요. 누르면 채점 칸에 들어가요.' }));
+    for (const g of CASE_GROUPS) {
+      body.append(el('div', { className: 'fb-group', textContent: g }));
+      for (const c of FEEDBACK_CASES.filter((x) => x.group === g)) {
+        const b = el('button', { type: 'button', className: 'fb' },
+          el('b', { textContent: c.name }), el('span', { className: `badge ${c.engine ? 'on' : 'new'}`, textContent: c.engine ? '엔진 앎' : '새로 필요' }),
+          el('q', { textContent: c.say }));
+        b.dataset.id = c.id;
+        b.title = `알아채는 법: ${c.detect}`;
+        b.onclick = () => activeForm?.pickFeedback(c.id);
+        body.append(b);
+      }
+    }
+  }
 }
-// 지금 고른 문제와 맞는 줄을 기준표에서 표시
+// 지금 고른 문제·피드백과 맞는 줄을 표시
 function markRubric(codes) {
   const hit = rubricFor(codes);
-  document.querySelectorAll('#rubric .rb').forEach((row) => row.classList.toggle('hit', !!hit && row.dataset.codes === hit.codes.join(' ') && !row.classList.contains('sub')));
+  document.querySelectorAll('#rubric .rb').forEach((row) => row.classList.toggle('hit', !!hit && row.dataset.key === hit.name));
+}
+function markFeedback(id) {
+  document.querySelectorAll('#rubric .fb').forEach((row) => row.classList.toggle('hit', row.dataset.id === id));
 }
 const RUBRIC_KEY = 'hw-dev-rubric';
 function setRubric(open) {
@@ -283,6 +330,20 @@ function open(id) {
   const note = el('textarea', { placeholder: '기준·이유를 직접 적어요 (예: 획이 떨림, 너무 기울어짐)', maxLength: 500, value: r.dev_note || '' });
   note.setAttribute('aria-label', '메모');
   const msg = el('p', { className: 'muted' }); msg.setAttribute('aria-live', 'polite');
+  // 학생에게 줄 피드백(상황 하나 + 직접 쓴 문장)
+  const fbSel = el('select'); fbSel.setAttribute('aria-label', '학생에게 줄 피드백');
+  fbSel.append(el('option', { value: '', textContent: '— 상황을 고르세요 —' }));
+  for (const g of CASE_GROUPS) {
+    const og = el('optgroup', { label: g });
+    for (const c of FEEDBACK_CASES.filter((x) => x.group === g)) og.append(el('option', { value: c.id, textContent: `${c.name}${c.engine ? '' : ' (새로 필요)'}` }));
+    fbSel.append(og);
+  }
+  fbSel.value = r.dev_feedback || '';
+  const fbSay = el('div', { className: 'fb-say' });
+  const fbText = el('input', { type: 'text', maxLength: 200, value: r.dev_feedback_text || '', placeholder: '직접 쓴 피드백 문장 (비우면 위 상황의 기본 문장)' });
+  fbText.setAttribute('aria-label', '직접 쓴 피드백 문장');
+  const showSay = () => { const c = CASE_BY_ID[fbSel.value]; fbSay.textContent = c ? `🔊 “${c.say}”` : ''; markFeedback(fbSel.value); };
+  fbSel.onchange = showSay;
   // 고른 문제 버튼에 맞는 기준 범위를 바로 보여 준다(엔진 점수가 아니라 교사 기준표에서). 범위를 벗어나면 알림
   const hint = el('div', { className: 'hint' }); hint.setAttribute('aria-live', 'polite');
   const updateHint = () => {
@@ -308,6 +369,7 @@ function open(id) {
   form.append(
     el('h3', { textContent: '개발자 점수' }), el('div', { className: 'score-in' }, scoreIn, el('span', { className: 'muted', textContent: 'Enter로 저장' })),
     el('h3', { textContent: '보이는 문제 (여러 개 고를 수 있어요)' }), chips, hint,
+    el('h3', { textContent: '학생에게 줄 피드백 (하나)' }), el('div', { className: 'fb-pick' }, fbSel, fbSay, fbText),
     el('h3', { textContent: '기준·메모 (직접 입력)' }), note,
     el('div', { className: 'actions' }, saveBtn, nextBtn, delBtn), msg, reveal);
 
@@ -329,6 +391,16 @@ function open(id) {
       const diff = now.score - r.dev_score;
       add('개발자', `${r.dev_score}점 · ${r.dev_issues ? issueNames(r.dev_issues) : '문제 표시 안 함'}`);
       reveal.append(el('div', { className: 'diff-big', textContent: `지금 엔진 − 개발자 = ${diff > 0 ? '+' : ''}${diff}점` }));
+      // 피드백 비교: 엔진이 실제로 한 말 vs 개발자가 고른 말
+      if (r.dev_feedback || r.dev_feedback_text) {
+        const eng = speechCase(now), devC = CASE_BY_ID[r.dev_feedback];
+        const cmp = el('div', { className: 'cmp' });
+        cmp.append(el('div', {}, el('b', { textContent: '엔진이 한 말 ' }), speechKo(now) ? `“${speechKo(now)}”` : '(말하지 않음 · 화면 칭찬)', ` [${CASE_BY_ID[eng]?.name || eng}]`));
+        cmp.append(el('div', {}, el('b', { textContent: '개발자가 고른 말 ' }), `“${r.dev_feedback_text || devC?.say || ''}”`, devC ? ` [${devC.name}]` : ''));
+        if (devC) cmp.append(eng === r.dev_feedback ? el('div', { className: 'same', textContent: '✓ 같은 상황을 골랐어요' })
+          : el('div', { className: 'diffr', textContent: devC.engine ? '✗ 엔진이 다른 상황을 먼저 말했어요' : '✗ 엔진이 아직 모르는 상황이에요(새로 필요)' }));
+        reveal.append(cmp);
+      }
       if (r.dev_issues) {
         const got = now.issues.map((i) => i.code);
         const miss = r.dev_issues.filter((c) => !got.includes(c)), extra = got.filter((c) => !r.dev_issues.includes(c) && ISSUE_NAMES_KO[c]);
@@ -344,6 +416,7 @@ function open(id) {
     if (scoreIn.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
     const picked = checks.filter((c) => c.checked).map((c) => c.value);
     const patch = { dev_score: v, dev_issues: none.checked ? [] : (picked.length ? picked : null), dev_note: note.value.trim() || null,
+      dev_feedback: fbSel.value || null, dev_feedback_text: fbText.value.trim() || null,
       dev_labeled_at: new Date().toISOString(), dev_by: session.uid };
     saveBtn.disabled = true;
     try {
@@ -356,7 +429,19 @@ function open(id) {
   };
   scoreIn.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
   scoreIn.oninput = updateHint;
-  updateHint();
+  updateHint(); showSay();
+  // 기준표·피드백 목록에서 바로 채우기
+  activeForm = {
+    applyRubric(rb) {
+      const code = rb.codes[0];
+      none.checked = code === 'NONE';
+      checks.forEach((c) => { c.checked = c.value === code; });
+      if (rb.typical != null) scoreIn.value = String(rb.typical);
+      updateHint(); scoreIn.focus(); scoreIn.select();
+    },
+    pickFeedback(id) { fbSel.value = id; showSay(); fbSel.focus(); },
+    refresh() { updateHint(); showSay(); },
+  };
   nextBtn.onclick = () => {
     const i = rows.findIndex((x) => x.id === r.id);
     const nxt = rows.slice(i + 1).find((x) => x.dev_score == null) || rows[i + 1];
@@ -394,6 +479,7 @@ $('export').onclick = async () => {
   const samples = all.map((r) => ({
     char: r.ch, teacherScore: r.dev_score, device: r.device, engineScoreAtSave: r.engine_score,
     teacherIssues: r.dev_issues, engineIssuesAtSave: r.engine_issues, note: r.dev_note || undefined,
+    feedback: r.dev_feedback || undefined, feedbackText: r.dev_feedback_text || undefined,
     writer: r.writer, source: 'server', id: r.id, engineVersion: r.engine_version,
     strokes: r.strokes.map((s) => s.map(([x, y]) => [x, y])), savedAt: r.dev_labeled_at,
   }));
