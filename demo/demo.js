@@ -586,9 +586,14 @@ const gate = (() => {
     close();
   };
   $('gSkip').onclick = () => { writer = null; try { localStorage.removeItem(WRITER_KEY); } catch {} close(); };
-  return { open() { $('gate').hidden = false; update(); $('gRole').querySelector('button').focus(); } };
+  // 처음 화면을 버튼으로 열었을 때는 바꾸지 않고 닫을 수 있다(✕, Esc)
+  const dismiss = () => { $('gate').hidden = true; };
+  $('gClose').onclick = dismiss;
+  $('gate').addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('gClose').hidden) dismiss(); });
+  return { open(canClose = false) { $('gClose').hidden = !canClose; $('gate').hidden = false; update(); $('gRole').querySelector('button').focus(); } };
 })();
-$('whoChange').onclick = () => gate.open();
+$('whoChange').onclick = () => gate.open(true);
+$('brand').onclick = () => gate.open(true);
 
 // ---------- 교사 점수 표본 모으기 (채점 보정용) ----------
 // 글씨 좌표와 선생님 점수만 저장한다. 학생 이름 같은 개인정보는 받지 않는다.
