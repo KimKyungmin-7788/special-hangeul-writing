@@ -5,6 +5,9 @@
 import { CONSONANTS } from './strokes-consonants.js';
 import { VOWELS } from './strokes-vowels.js';
 
+// 채점 규칙이 바뀌면 올린다. 서버에 저장한 글씨마다 어느 엔진으로 채점했는지 남긴다
+export const ENGINE_VERSION = '0.4';
+
 const N = 32; // 획 하나를 다시 찍을 점 개수
 
 // 기기별 허용 폭(칸 크기 대비 비율). 클수록 너그럽다.

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>글씨 채점실</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<meta name="theme-color" content="#3b5bdb">
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2433; --muted: #6b7280; --line: #e3e1da;
+    --accent: #3b5bdb; --good: #2f9e44; --warn: #e8590c; --bad: #c92a2a;
+    --guide: rgba(59, 91, 219, 0.13); --pen: #1d2433; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  input[type=checkbox] { min-height: 0; width: 18px; height: 18px; padding: 0; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .me { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .btn { font: inherit; font-size: 14px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 8px 12px; min-height: 40px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.danger { color: var(--bad); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  input, select, textarea { font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 40px; background: #fff; color: var(--ink); }
+  .login { max-width: 380px; margin: 60px auto; display: grid; gap: 10px; }
+  .login h2 { margin: 0 0 4px; font-size: 18px; }
+  .err { color: var(--bad); font-size: 13px; min-height: 18px; margin: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 14px 16px 30px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .filters input[type=search] { width: 120px; }
+  .layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .list { max-height: calc(100vh - 170px); overflow: auto; padding: 6px; }
+  .row { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; width: 100%; text-align: left; font: inherit; border: 1px solid transparent; background: none; border-radius: 10px; padding: 8px; cursor: pointer; color: var(--ink); }
+  .row:hover { background: #f4f5f8; }
+  .row[aria-current="true"] { border-color: var(--accent); background: #eef2ff; }
+  .row .ch { font-size: 22px; font-weight: 700; text-align: center; }
+  .row .meta { font-size: 13px; line-height: 1.4; }
+  .row .meta small { color: var(--muted); }
+  .tag { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 2px 6px; white-space: nowrap; }
+  .tag.todo { background: #fff4e6; color: var(--warn); }
+  .tag.done { background: #ebfbee; color: var(--good); }
+  .tag.t { background: #eef2ff; color: var(--accent); }
+  .detail { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 1060px) { .detail { grid-template-columns: minmax(0, 1fr); } }
+  .head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin-bottom: 10px; }
+  .head b { font-size: 28px; }
+  #replay { width: 100%; aspect-ratio: 1; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+  .ctrls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 13px; min-height: 36px; padding: 4px 10px; border: 0; background: #fff; color: var(--ink); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  progress { width: 100%; height: 6px; margin-top: 6px; accent-color: var(--accent); }
+  label.chk { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  .form h3 { font-size: 13px; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  .form h3:first-child { margin-top: 0; }
+  .score-in { display: flex; gap: 8px; align-items: center; }
+  .score-in input { width: 100px; font-size: 22px; text-align: center; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { position: relative; }
+  .chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .chip span { display: inline-flex; align-items: center; min-height: 36px; padding: 4px 11px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; cursor: pointer; user-select: none; }
+  .chip input:checked + span { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .chip.none input:checked + span { background: var(--good); border-color: var(--good); }
+  textarea { width: 100%; min-height: 70px; resize: vertical; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .reveal { margin-top: 14px; padding: 12px; border-radius: 12px; background: #f6f7fb; font-size: 14px; line-height: 1.7; }
+  .reveal .hidden-note { color: var(--muted); }
+  .diff-big { font-weight: 800; }
+  .empty { color: var(--muted); font-size: 14px; padding: 20px; text-align: center; }
+  .foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>글씨 채점실 <span class="muted">개발자 전용</span></h1>
+  <div class="me" id="me" hidden><span id="meEmail"></span><button class="btn" id="logout" type="button">로그아웃</button></div>
+</header>
+
+<section class="panel login" id="login" hidden>
+  <h2>개발자 로그인</h2>
+  <p class="muted">개발자로 등록된 계정만 볼 수 있어요.</p>
+  <input id="email" type="email" autocomplete="username" placeholder="이메일" aria-label="이메일">
+  <input id="password" type="password" autocomplete="current-password" placeholder="비밀번호" aria-label="비밀번호">
+  <button class="btn primary" id="loginBtn" type="button">로그인</button>
+  <p class="err" id="loginErr" aria-live="polite"></p>
+</section>
+
+<main id="app" hidden>
+  <div class="filters panel">
+    <select id="fRole" aria-label="역할">
+      <option value="">학생+교사</option>
+      <option value="student">학생만</option>
+      <option value="teacher">교사만</option>
+    </select>
+    <select id="fState" aria-label="채점 상태">
+      <option value="todo">채점 전</option>
+      <option value="done">채점함</option>
+      <option value="">전체</option>
+    </select>
+    <input id="fWriter" type="search" placeholder="작성자 (예: 초-3)" aria-label="작성자 코드">
+    <input id="fCh" type="search" placeholder="글자" maxlength="1" aria-label="글자" style="width:70px">
+    <button class="btn" id="refresh" type="button">불러오기</button>
+    <span class="muted" id="count"></span>
+    <span style="flex:1"></span>
+    <label class="chk"><input type="checkbox" id="showEngine"> 엔진 점수 먼저 보기</label>
+    <button class="btn" id="export" type="button">채점한 글씨 내려받기</button>
+  </div>
+  <div class="layout">
+    <div class="panel list" id="list" role="list" aria-label="글씨 목록"></div>
+    <div class="panel" id="detail"><p class="empty">왼쪽에서 글씨를 고르세요.</p></div>
+  </div>
+</main>
+
+<script type="module" src="/demo/dev.js"></script>
+</body>
+</html>

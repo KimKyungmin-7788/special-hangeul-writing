@@ -1,6 +1,8 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
 import { feedbackKo, speechKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
+import { ENGINE_VERSION } from '../src/engine.js';
+import { submitAttempt, teacherLabel, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
 import { copyText } from './copy.js';
 
 const $ = (id) => document.getElementById(id);
@@ -79,9 +81,12 @@ function redraw() {
   if (drawing) line(drawing, css('--pen'), 0.035);
 }
 
+// t: 이 글자의 첫 획을 시작한 뒤 지난 밀리초. 개발자 화면에서 쓴 순서·빠르기 그대로 다시 보여 줄 때 쓴다
+let attemptT0 = 0;
 function toPoint(e) {
   const r = pad.getBoundingClientRect();
-  return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  const now = e.timeStamp || performance.now();
+  return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, t: Math.max(0, Math.round(now - attemptT0)) };
 }
 
 let activePointer = null; // 지금 획을 긋고 있는 손가락·펜(동시에 하나만 받는다)
@@ -95,6 +100,7 @@ pad.addEventListener('pointerdown', (e) => {
   leaveViewing();
   activePointer = e.pointerId;
   try { pad.setPointerCapture(e.pointerId); } catch {} // 칸 밖으로 나가도 획이 끊기지 않게(실패해도 쓰기는 계속)
+  if (!strokes.length) attemptT0 = e.timeStamp || performance.now();
   drawing = [toPoint(e)];
   scratch.start();
 });
@@ -454,6 +460,7 @@ function score() {
   best[current] = Math.max(best[current] ?? 0, r.score);
   if (!strokes.length) { showResult(r, null); return; }
   const a = { id: ++attemptSeq, char: current, strokes, device, result: r, n: attempts.filter((x) => x.char === current).length + 1 };
+  a.serverId = send(a); // 학생·교사로 접속했으면 서버에 보낸다(둘러보기는 보내지 않음)
   attempts.push(a);
   showResult(r, a);
   // 점수가 낮거나, 높아도 고칠 점이 있으면 한 문장으로 말해 준다
@@ -486,9 +493,102 @@ function showResult(r, attempt) {
     again.onclick = () => voice.say(line);
     say.append(txt, again); el.append(say);
   }
-  if (attempt) el.append(calibForm(r, attempt));
+  if (attempt && !(writer && !isTeacher(writer))) el.append(calibForm(r, attempt)); // 학생에게는 표본 칸을 보이지 않는다
   renderGrid();
 }
+
+// ---------- 쓰는 사람(작성자 코드)과 서버 보내기 ----------
+// 학생은 '초-3-01'처럼 학교급-학년-번호만, 교사는 '교사-이름/번호'. 실명 입력칸은 없다.
+// 고른 코드는 이 기기에 기억하고, 공용 기기는 '바꾸기'로 바꾼다. 둘러보기는 서버에 보내지 않는다.
+const WRITER_KEY = 'hw-writer', OUTBOX_KEY = 'hw-outbox';
+let writer = null; // null이면 둘러보기
+try { const w = localStorage.getItem(WRITER_KEY); if (w && isWriter(w)) writer = w; } catch {}
+let outbox = [];
+try { outbox = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); } catch { outbox = []; }
+const saveOutbox = () => { try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox.slice(-200))); } catch {} };
+
+function packStrokes(st) {
+  return st.map((s) => s.map((p) => [round3(p.x), round3(p.y), Math.round(p.t ?? 0)]));
+}
+// 서버에 보내고 서버 id를 돌려준다. 실패하면 이 기기에 모아 두었다가 다음에 다시 보낸다
+function send(a) {
+  if (!writer) return null;
+  const item = { writer, ch: a.char, device: a.device, strokes: packStrokes(a.strokes),
+    engineScore: a.result.score, engineIssues: a.result.issues.map((i) => i.code), engineVersion: ENGINE_VERSION };
+  return submitAttempt(item).then((id) => { flushOutbox(); return id; })
+    .catch((e) => { if (!/bad_writer|too_large/.test(e.message)) { outbox.push(item); saveOutbox(); } return null; })
+    .finally(renderWho);
+}
+let flushing = false;
+async function flushOutbox() {
+  if (flushing || !outbox.length) return;
+  flushing = true;
+  try {
+    while (outbox.length) { await submitAttempt(outbox[0]); outbox.shift(); saveOutbox(); }
+  } catch {} finally { flushing = false; renderWho(); }
+}
+window.addEventListener('online', flushOutbox);
+
+function renderWho() {
+  $('whoName').textContent = writer || '둘러보기';
+  $('whoSync').textContent = !writer ? '(저장 안 함)' : outbox.length ? `· 보내기 대기 ${outbox.length}개` : '';
+  $('samples').hidden = !!writer && !isTeacher(writer); // 학생에게는 표본 표를 보이지 않는다
+}
+// 쓰는 사람이 바뀌면 이전 사람의 결과·표본 칸을 지운다
+function renderResultEmpty() { $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>'; }
+
+// 고르기 화면
+const gate = (() => {
+  const st = { role: null, school: null, grade: null };
+  const pick = (box, v) => box.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  const code = () => {
+    if (st.role === 'student') {
+      const n = Number($('gNum').value);
+      if (!st.school || !st.grade || !Number.isInteger(n) || n < 1 || n > 99) return null;
+      return `${st.school}-${st.grade}-${String(n).padStart(2, '0')}`;
+    }
+    if (st.role === 'teacher') { const t = $('gTname').value.trim(); return t ? `교사-${t}` : null; }
+    return null;
+  };
+  const update = () => {
+    const c = code();
+    const ok = !!c && isWriter(c);
+    $('gPreview').textContent = c || '';
+    $('gGo').disabled = !ok;
+    $('gErr').textContent = c && !ok ? '한글·영문·숫자만 10자까지 쓸 수 있어요.' : '';
+  };
+  const grades = () => {
+    const box = $('gGrade'); box.replaceChildren();
+    if (!st.school) return;
+    if (st.grade > SCHOOL[st.school]) st.grade = null;
+    for (let g = 1; g <= SCHOOL[st.school]; g++) {
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.v = String(g); b.textContent = `${g}학년`;
+      b.onclick = () => { st.grade = g; pick(box, String(g)); update(); };
+      box.append(b);
+    }
+    pick(box, String(st.grade));
+  };
+  for (const [k, name] of Object.entries(SCHOOL_NAME)) {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.v = k; b.textContent = name;
+    b.onclick = () => { st.school = k; pick($('gSchool'), k); grades(); update(); };
+    $('gSchool').append(b);
+  }
+  $('gRole').querySelectorAll('button').forEach((b) => { b.onclick = () => {
+    st.role = b.dataset.v; pick($('gRole'), st.role);
+    $('gStudent').hidden = st.role !== 'student'; $('gTeacher').hidden = st.role !== 'teacher';
+    update();
+  }; });
+  $('gNum').oninput = update; $('gTname').oninput = update;
+  const close = () => { $('gate').hidden = true; renderWho(); renderResultEmpty(); flushOutbox(); };
+  $('gGo').onclick = () => {
+    const c = code(); if (!c || !isWriter(c)) return;
+    writer = c; try { localStorage.setItem(WRITER_KEY, c); } catch {}
+    close();
+  };
+  $('gSkip').onclick = () => { writer = null; try { localStorage.removeItem(WRITER_KEY); } catch {} close(); };
+  return { open() { $('gate').hidden = false; update(); $('gRole').querySelector('button').focus(); } };
+})();
+$('whoChange').onclick = () => gate.open();
 
 // ---------- 교사 점수 표본 모으기 (채점 보정용) ----------
 // 글씨 좌표와 선생님 점수만 저장한다. 학생 이름 같은 개인정보는 받지 않는다.
@@ -541,6 +641,14 @@ function calibForm(r, attempt) {
     });
     persist(); renderSamples();
     msg.textContent = `저장했어요. (선생님 ${v}점 · 엔진 ${r.score}점) 모은 표본 ${samples.length}개`;
+    // 교사로 접속했으면 서버의 같은 글씨에도 표본 점수를 붙여 개발자가 볼 수 있게 한다
+    if (writer && isTeacher(writer) && attempt.serverId) {
+      const issues = none.checked ? [] : (picked.length ? picked : null);
+      attempt.serverId
+        .then((id) => id && teacherLabel({ id, writer, score: v, issues }))
+        .then((ok) => { if (ok) msg.textContent += ' · 서버에도 저장'; })
+        .catch(() => { msg.textContent += ' · 서버 저장 실패(인터넷 확인)'; });
+    }
     // 같은 글씨를 두 번 저장하지 않도록 비운다
     input.value = ''; checks.forEach((c) => { c.checked = false; });
   };
@@ -739,6 +847,8 @@ try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = 
 renderGrid();
 renderCarousel();
 renderSamples();
+renderWho();
+if (!writer) gate.open(); else flushOutbox();
 syncModel();
 setPadSize(padWanted, false);
 
