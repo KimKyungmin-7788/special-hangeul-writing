@@ -18,7 +18,7 @@
   [hidden] { display: none !important; }
   input[type=checkbox] { min-height: 0; width: 18px; height: 18px; padding: 0; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; max-width: 1640px; margin: 0 auto; padding: 14px 16px 0; }
   header h1 { font-size: 18px; margin: 0; }
   header .me { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
@@ -78,6 +78,31 @@
   .reveal .hidden-note { color: var(--muted); }
   .diff-big { font-weight: 800; }
   .empty { color: var(--muted); font-size: 14px; padding: 20px; text-align: center; }
+  /* 채점 기준표: 넓은 화면에서는 오른쪽에 펼쳐 둔 채로, 좁으면 위에 */
+  main.with-rubric { max-width: 1640px; }
+  main.with-rubric .layout { grid-template-columns: 300px minmax(0, 1fr) 380px; }
+  @media (max-width: 1380px) { main.with-rubric .layout { grid-template-columns: 300px minmax(0, 1fr); } main.with-rubric #rubric { grid-column: 1 / -1; order: -1; position: static; max-height: 340px; } }
+  @media (max-width: 860px) { main.with-rubric .layout { grid-template-columns: minmax(0, 1fr); } }
+  #rubric { position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow: auto; font-size: 13px; line-height: 1.5; }
+  #rubric h2 { font-size: 16px; margin: 0 0 2px; }
+  #rubric .src { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+  #rubric ol { margin: 0 0 12px; padding-left: 18px; }
+  .rb { border-top: 1px solid var(--line); padding: 8px 0; }
+  .rb.sub { padding-left: 12px; border-top-style: dashed; }
+  .rb-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .rb-top b { font-size: 14px; }
+  .rb-band { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rb-n { color: var(--muted); font-size: 11px; }
+  .rb.nodata .rb-band { color: var(--warn); }
+  .rb .look { color: var(--muted); font-size: 12px; }
+  .rb.hit { background: #eef2ff; border-radius: 8px; padding-left: 8px; padding-right: 8px; }
+  .grades { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+  .grades span { font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; }
+  .prec { background: #fff8f0; border-radius: 10px; padding: 8px 10px; margin-top: 10px; }
+  .prec b { font-size: 13px; }
+  .prec li { margin: 4px 0; }
+  .hint { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: #eef2ff; font-size: 13px; line-height: 1.5; }
+  .hint.warn { background: #fff4e6; color: #a8470a; }
   .foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; }
 </style>
 </head>
@@ -113,12 +138,14 @@
     <button class="btn" id="refresh" type="button">불러오기</button>
     <span class="muted" id="count"></span>
     <span style="flex:1"></span>
+    <button class="btn" id="rubricBtn" type="button" aria-pressed="false" aria-controls="rubric">📋 채점 기준</button>
     <label class="chk"><input type="checkbox" id="showEngine"> 엔진 점수 먼저 보기</label>
     <button class="btn" id="export" type="button">채점한 글씨 내려받기</button>
   </div>
   <div class="layout">
     <div class="panel list" id="list" role="list" aria-label="글씨 목록"></div>
     <div class="panel" id="detail"><p class="empty">왼쪽에서 글씨를 고르세요.</p></div>
+    <aside class="panel" id="rubric" aria-label="채점 기준" hidden></aside>
   </div>
 </main>
 

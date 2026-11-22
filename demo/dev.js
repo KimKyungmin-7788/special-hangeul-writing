@@ -3,6 +3,7 @@
 import { evaluate, getTemplate } from '../src/engine.js';
 import { ISSUE_NAMES_KO } from '../src/feedback-ko.js';
 import { auth, isDev, listAttempts, updateAttempt, deleteAttempt } from './server.js';
+import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
 const $ = (id) => document.getElementById(id);
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -102,6 +103,50 @@ $('refresh').onclick = () => load();
 const SHOW_KEY = 'hw-dev-showEngine';
 try { $('showEngine').checked = localStorage.getItem(SHOW_KEY) === '1'; } catch {}
 $('showEngine').onchange = () => { try { localStorage.setItem(SHOW_KEY, $('showEngine').checked ? '1' : '0'); } catch {} if (current) open(current); };
+
+// ---------- 채점 기준표 ----------
+// 교사 표본에서 뽑은 기준을 펼쳐 두고 본다. 채점하다 기준이 흐트러질 때 다시 맞추는 용도.
+const bandText = (b) => b[0] == null && b[1] == null ? '표본 없음' : b[0] == null ? `최고 ${b[1]}` : `${b[0]}~${b[1]}`;
+function renderRubric() {
+  const box = $('rubric'); box.replaceChildren();
+  box.append(el('h2', { textContent: '📋 채점 기준' }),
+    el('p', { className: 'src', textContent: `교사 표본 ${RUBRIC_SAMPLES}개에서 실제로 준 점수로 만듦 (${RUBRIC_DATE}). n은 근거 표본 수.` }));
+  const how = el('ol');
+  for (const t of ['다른 글자로 읽히는지 먼저 본다.', '아래 표에서 가장 위에 걸리는 문제 하나가 점수 범위를 정한다.', '그 범위 안에서 모양(안내선과 얼마나 같은지)으로 더 깎는다.', '범위를 벗어나게 줄 때는 메모에 이유를 남긴다.'])
+    how.append(el('li', { textContent: t }));
+  box.append(how);
+  const g = el('div', { className: 'grades' });
+  for (const [k, v] of GRADES) g.append(el('span', { textContent: `${k} ${v}${k === 'F' ? '~59' : '+'}` }));
+  box.append(g);
+  for (const r of RUBRIC) {
+    const row = el('div', { className: `rb${r.sub ? ' sub' : ''}${r.n ? '' : ' nodata'}` });
+    row.dataset.codes = r.codes.join(' ');
+    row.append(el('div', { className: 'rb-top' }, el('b', { textContent: r.name }),
+      el('span', {}, el('span', { className: 'rb-band', textContent: bandText(r.band) }), ' ', el('span', { className: 'rb-n', textContent: r.n ? `n=${r.n}` : '근거 없음' }))),
+    el('div', { textContent: r.rule }));
+    if (r.look) row.append(el('div', { className: 'look', textContent: `예: ${r.look}` }));
+    box.append(row);
+  }
+  const prec = el('div', { className: 'prec' }, el('b', { textContent: '예외로 정한 표본 (원칙은 그대로)' }));
+  const ul = el('ul'); for (const p of PRECEDENTS) ul.append(el('li', { textContent: `${p.ch} ${p.score}점: ${p.decision}` }));
+  prec.append(ul); box.append(prec);
+}
+// 지금 고른 문제와 맞는 줄을 기준표에서 표시
+function markRubric(codes) {
+  const hit = rubricFor(codes);
+  document.querySelectorAll('#rubric .rb').forEach((row) => row.classList.toggle('hit', !!hit && row.dataset.codes === hit.codes.join(' ') && !row.classList.contains('sub')));
+}
+const RUBRIC_KEY = 'hw-dev-rubric';
+function setRubric(open) {
+  $('rubric').hidden = !open;
+  $('app').classList.toggle('with-rubric', open);
+  $('rubricBtn').setAttribute('aria-pressed', String(open));
+  try { localStorage.setItem(RUBRIC_KEY, open ? '1' : '0'); } catch {}
+  requestAnimationFrame(() => drawReplay());
+}
+renderRubric();
+$('rubricBtn').onclick = () => setRubric($('rubric').hidden);
+try { setRubric(localStorage.getItem(RUBRIC_KEY) !== '0'); } catch { setRubric(true); }
 
 // ---------- 다시 보기(쓴 순서·빠르기 그대로) ----------
 const GAP_MAX = 600; // '쉬는 시간 줄이기'를 켜면 이보다 긴 멈춤을 이만큼으로 줄인다
@@ -232,19 +277,37 @@ function open(id) {
   const none = mk('NONE', '문제 없음', 'none');
   const checks = Object.entries(ISSUE_NAMES_KO).map(([c, n]) => mk(c, n));
   for (const c of [none, ...checks]) c.onchange = () => {
-    if (!c.checked) return;
-    if (c === none) checks.forEach((o) => { o.checked = false; }); else none.checked = false;
+    if (c.checked) { if (c === none) checks.forEach((o) => { o.checked = false; }); else none.checked = false; }
+    updateHint();
   };
   const note = el('textarea', { placeholder: '기준·이유를 직접 적어요 (예: 획이 떨림, 너무 기울어짐)', maxLength: 500, value: r.dev_note || '' });
   note.setAttribute('aria-label', '메모');
   const msg = el('p', { className: 'muted' }); msg.setAttribute('aria-live', 'polite');
+  // 고른 문제 버튼에 맞는 기준 범위를 바로 보여 준다(엔진 점수가 아니라 교사 기준표에서). 범위를 벗어나면 알림
+  const hint = el('div', { className: 'hint' }); hint.setAttribute('aria-live', 'polite');
+  const updateHint = () => {
+    const picked = none.checked ? [] : checks.filter((c) => c.checked).map((c) => c.value);
+    const any = none.checked || picked.length;
+    const rb = any ? rubricFor(picked) : null;
+    markRubric(any ? picked : null);
+    hint.className = 'hint';
+    if (!rb) { hint.textContent = '보이는 문제를 고르면 기준 범위를 알려 드려요.'; return; }
+    const sub = rb.codes.includes('OVERSHOOT') ? ' (살짝 지나친 정도면 80~85)' : '';
+    hint.textContent = `📋 ${rb.name}: 보통 ${bandText(rb.band)}${rb.typical ? `, 대표 ${rb.typical}` : ''}${sub} · ${rb.rule}`;
+    const v = Number(scoreIn.value);
+    const [lo, hi] = rb.band;
+    if (scoreIn.value !== '' && Number.isFinite(v) && ((lo != null && v < lo) || (hi != null && v > hi))) {
+      const okSlight = rb.codes.includes('OVERSHOOT') && v >= 80 && v <= 85;
+      if (!okSlight) { hint.className = 'hint warn'; hint.textContent += ` — ${v}점은 기준 범위를 벗어나요. 예외라면 메모에 이유를 적어 주세요.`; }
+    }
+  };
   const reveal = el('div', { className: 'reveal' });
   const saveBtn = el('button', { className: 'btn primary', type: 'button', textContent: r.dev_score != null ? '고쳐 저장' : '저장' });
   const nextBtn = el('button', { className: 'btn', type: 'button', textContent: '다음 글씨 →' });
   const delBtn = el('button', { className: 'btn danger', type: 'button', textContent: '삭제' });
   form.append(
     el('h3', { textContent: '개발자 점수' }), el('div', { className: 'score-in' }, scoreIn, el('span', { className: 'muted', textContent: 'Enter로 저장' })),
-    el('h3', { textContent: '보이는 문제 (여러 개 고를 수 있어요)' }), chips,
+    el('h3', { textContent: '보이는 문제 (여러 개 고를 수 있어요)' }), chips, hint,
     el('h3', { textContent: '기준·메모 (직접 입력)' }), note,
     el('div', { className: 'actions' }, saveBtn, nextBtn, delBtn), msg, reveal);
 
@@ -289,6 +352,8 @@ function open(id) {
     finally { saveBtn.disabled = false; }
   };
   scoreIn.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
+  scoreIn.oninput = updateHint;
+  updateHint();
   nextBtn.onclick = () => {
     const i = rows.findIndex((x) => x.id === r.id);
     const nxt = rows.slice(i + 1).find((x) => x.dev_score == null) || rows[i + 1];
