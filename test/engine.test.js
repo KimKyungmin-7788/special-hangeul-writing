@@ -311,7 +311,7 @@ test('소리 피드백은 가장 중요한 문제 하나를 짧게, 문제 없�
   const { speechKo } = await import('../src/feedback-ko.js');
   assert.equal(speechKo(evaluate('ㄱ', perfect('ㄱ'))), null);
   const g = getTemplate('ㄱ').strokes[0].points;
-  assert.equal(speechKo(evaluate('ㄱ', [jitter(g.slice(0, 16)), jitter(g.slice(15))])), '한 획은 한 번에 그어요.');
+  assert.equal(speechKo(evaluate('ㄱ', [jitter(g.slice(0, 16)), jitter(g.slice(15))])), '끊지 말고 이어서 쓰세요.');
   const e = perfect('ㅔ');
   e[0] = jitter([{ x: 0.27, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.73, y: 0.5 }]);
   assert.equal(speechKo(evaluate('ㅔ', e)), '첫 번째 획이 넘어갔어요. 닿는 곳에서 멈춰요.');
@@ -321,5 +321,25 @@ test('소리 피드백은 가장 중요한 문제 하나를 짧게, 문제 없�
     const r = evaluate(ch, st);
     const line = speechKo(r);
     if (r.issues.length) assert.ok(line && line.length <= 40, `${ch} ${r.issues.map((i) => i.code)}: ${line}`);
+  }
+});
+
+test('점수 풀이: 상한이 점수를 정하면 그 문제를, 겹친 문제는 추가 감점 없음으로 알려 준다', async () => {
+  const { explainScore } = await import('../src/engine.js');
+  const { explainKo } = await import('../src/feedback-ko.js');
+  const e = perfect('ㅔ');
+  e[0] = jitter([{ x: 0.27, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0.73, y: 0.5 }]);
+  const r = evaluate('ㅔ', e);
+  const ex = explainScore(r);
+  assert.equal(ex.binding.code, 'OVERSHOOT');
+  assert.equal(ex.binding.cap, r.score);
+  assert.match(explainKo(r)[0].text, /넘어감 → 최고 \d+/);
+  // 문제 없이 바르게 쓰면 '감점 없음' 또는 작은 감점만
+  const ok = explainKo(evaluate('ㄱ', perfect('ㄱ')));
+  assert.ok(ok.every((k) => k.kind !== 'cap'));
+  // 모든 글자에서 풀이가 점수와 맞는다: 상한이 있으면 점수 = 상한, 없으면 점수 = 항목 합
+  for (const ch of listChars()) for (const st of [perfect(ch), perfect(ch).map((s) => jitter(s, 0.05)), perfect(ch).reverse()]) {
+    const rr = evaluate(ch, st), x = explainScore(rr);
+    assert.equal(rr.score, x.binding ? x.binding.cap : Math.min(x.fromParts, x.caps[0]?.cap ?? 100), `${ch} ${rr.score} ${JSON.stringify(x)}`);
   }
 });

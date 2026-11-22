@@ -258,7 +258,7 @@ export function evaluate(char, userStrokes, opts = {}) {
       if (r2.parts.shape > result.parts.shape) {
         r2.issues = r2.issues.filter((i) => i.code !== 'STROKE_SPLIT');
         r2.issues.unshift({ code: 'STROKE_SPLIT', split: m.split });
-        capScore(r2, CAPS.STROKE_SPLIT);
+        capScore(r2, CAPS.STROKE_SPLIT, 'STROKE_SPLIT');
         r2.measures.mergedPieces = m.merges;
         result = r2;
         user = m.strokes;
@@ -271,7 +271,7 @@ export function evaluate(char, userStrokes, opts = {}) {
     const r3 = scoreAgainst(char, alt, user, tol);
     if (r3.parts.shape > result.parts.shape + 0.05) {
       r3.issues.unshift({ code: 'ALT_FORM', strokes: alt.length, expected: nt });
-      capScore(r3, CAPS.ALT_FORM);
+      capScore(r3, CAPS.ALT_FORM, 'ALT_FORM');
       r3.measures.altForm = 1;
       result = r3;
     }
@@ -293,12 +293,13 @@ export function evaluate(char, userStrokes, opts = {}) {
   if (look) result.measures.otherCharMargin = look.shape - result.inkShapeUniform;
   if (look && look.shape >= result.inkShapeUniform + WRONG_CHAR_MARGIN) {
     result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
-    capScore(result, CAPS.WRONG_CHAR);
+    capScore(result, CAPS.WRONG_CHAR, 'WRONG_CHAR');
   }
   return result;
 }
 
-function capScore(r, cap) {
+function capScore(r, cap, code) {
+  addCap(r.caps || (r.caps = []), code, cap);
   r.score = Math.min(r.score, cap);
   r.grade = gradeOf(r.score);
   r.stars = starsOf(r.score);
@@ -433,7 +434,7 @@ function scoreAgainst(char, tStrokes, user, tol) {
     return { char, score: 0, grade: 'F', stars: 0,
       parts: { order: 0, direction: 0, shape: 0, placement: 0 },
       strokes: tStrokes.map((s, j) => ({ index: j, type: s.type, matched: -1 })),
-      extraStrokes: 0, issues: [{ code: 'EMPTY' }], measures: emptyMeasures(nt) };
+      extraStrokes: 0, issues: [{ code: 'EMPTY' }], measures: emptyMeasures(nt), caps: [] };
   }
 
   // 1) 자리·크기: 글자 전체 테두리 상자 비교
@@ -518,6 +519,7 @@ function scoreAgainst(char, tStrokes, user, tol) {
   // 5) 접점: 정답에서 획 끝이 다른 획에 닿는 곳마다, 학생 획이 거기서 멈췄는지 넘어갔는지 본다.
   //    교사는 비율·위치보다 '획이 넘어간 것'을 크게 감점했다(ㅔ·ㅖ·ㅛ 등 표본 40~50점).
   let overCap = Infinity;
+  const caps = []; // 이 글씨에 걸린 점수 상한들(문제 코드별). 가장 낮은 것이 점수를 정한다
   let overAt = null, gapAt = null;
   if (!seg.joined.length && !seg.split.length) {
     for (const jn of junctionsOf(tStrokes)) {
@@ -538,11 +540,14 @@ function scoreAgainst(char, tStrokes, user, tol) {
     if (overAt && overAt.len > OVER_OK) {
       const j = clamp01(1 - (overAt.len - OVER_OK) / (OVER_BAD - OVER_OK));
       overCap = Math.round(OVER_CAP + (100 - OVER_CAP) * j);
+      addCap(caps, 'OVERSHOOT', overCap);
       issues.unshift({ code: 'OVERSHOOT', stroke: overAt.a, into: overAt.b, length: overAt.len });
     }
     if (gapAt && gapAt.gap > GAP_OK) {
       const j = clamp01(1 - (gapAt.gap - GAP_OK) / (GAP_BAD - GAP_OK));
-      overCap = Math.min(overCap, Math.round(GAP_CAP + (100 - GAP_CAP) * j));
+      const gapCap = Math.round(GAP_CAP + (100 - GAP_CAP) * j);
+      overCap = Math.min(overCap, gapCap);
+      addCap(caps, 'GAP', gapCap);
       issues.unshift({ code: 'GAP', stroke: gapAt.a, to: gapAt.b, length: gapAt.gap });
     }
   }
@@ -550,9 +555,9 @@ function scoreAgainst(char, tStrokes, user, tol) {
   const parts = { order, direction, shape, placement };
   let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
   const uncapped = score;
-  for (const it of issues) if (CAPS[it.code] !== undefined) score = Math.min(score, CAPS[it.code]);
+  for (const it of issues) if (CAPS[it.code] !== undefined) { score = Math.min(score, CAPS[it.code]); addCap(caps, it.code, CAPS[it.code]); }
   const joinedIssue = issues.find((i) => i.code === 'STROKES_JOINED');
-  if (joinedIssue) score = Math.min(score, joinedCap(joinedIssue.joins));
+  if (joinedIssue) { score = Math.min(score, joinedCap(joinedIssue.joins)); addCap(caps, 'STROKES_JOINED', joinedCap(joinedIssue.joins)); }
   score = Math.min(score, overCap);
 
   // 측정값: 상한·배점을 적용하기 전의 날 숫자. 교사 점수에 맞춰 무게를 학습할 때 입력으로 쓴다.
@@ -577,7 +582,7 @@ function scoreAgainst(char, tStrokes, user, tol) {
     uncappedScore: uncapped,
   };
 
-  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, inkShapeUniform, strokes, extraStrokes: extra, issues, measures };
+  return { char, score, grade: gradeOf(score), stars: starsOf(score), parts, inkShape, inkShapeUniform, strokes, extraStrokes: extra, issues, measures, caps };
 }
 
 // 측정값의 기본 틀. 키 순서가 곧 내보내기(CSV) 열 순서다.
@@ -617,6 +622,30 @@ export function checkStroke(char, expectedIndex, userStroke, opts = {}) {
     bestIndex: best,
     score: exp.score,
   };
+}
+
+// 같은 문제의 상한이 여러 번 걸리면 낮은 값만 남긴다
+function addCap(list, code, cap) {
+  const it = list.find((c) => c.code === code);
+  if (!it) list.push({ code, cap }); else it.cap = Math.min(it.cap, cap);
+}
+
+/**
+ * 점수가 왜 이렇게 나왔는지 풀어 준다(교사·개발자용 키워드).
+ * - deductions: 네 항목에서 깎인 점수(획순 10·방향 5·모양 75·자리·크기 10 중 잃은 만큼)
+ * - caps: 문제마다 걸린 점수 상한(낮은 순). 가장 낮은 상한이 항목 점수보다 낮으면 그 상한이 점수를 정한다(binding)
+ * - 문제가 겹쳐도 상한끼리 더해 깎지는 않는다: 가장 무거운 문제 하나의 상한만 적용되고 나머지는 '겹침'으로 표시
+ */
+export function explainScore(r) {
+  const parts = r.parts || { order: 0, direction: 0, shape: 0, placement: 0 };
+  const deductions = Object.entries(WEIGHTS)
+    .map(([key, w]) => ({ key, weight: w, lost: Math.round(w * (1 - parts[key]) * 10) / 10 }))
+    .filter((d) => d.lost >= 0.5)
+    .sort((a, b) => b.lost - a.lost);
+  const fromParts = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
+  const caps = [...(r.caps || [])].sort((a, b) => a.cap - b.cap);
+  const binding = caps.length && caps[0].cap < fromParts ? caps[0] : null;
+  return { fromParts, deductions, caps, binding, overlapped: binding ? caps.slice(1) : [], score: r.score };
 }
 
 export function gradeOf(score) {

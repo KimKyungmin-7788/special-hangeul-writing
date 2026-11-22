@@ -1,7 +1,7 @@
 // 채점 결과(issues)를 학생에게 보여 줄 한국어 문장으로 바꾼다.
 // 앱마다 말투를 바꾸고 싶으면 이 파일만 바꾸면 된다.
 
-import { getTemplate } from './engine.js';
+import { getTemplate, explainScore } from './engine.js';
 
 const nth = (i) => `${i + 1}번째 획`;
 const KOR_COUNT = { 2: '두', 3: '세', 4: '네', 5: '다섯' };
@@ -72,6 +72,31 @@ export function feedbackKo(result) {
   return msgs;
 }
 
+// 점수가 왜 이렇게 나왔는지 키워드로(교사·개발자용). 채점 기준표의 문제 이름을 그대로 쓴다.
+// kind: 'cap' 점수를 정한 문제(상한) · 'minus' 실제로 깎인 항목 · 'muted' 있었지만 점수에 반영 안 됨(겹침/상한에 묻힘) · 'ok' 감점 없음
+const PART_KO = { order: '획순', direction: '방향', shape: '모양', placement: '자리·크기' };
+const PART_ISSUES = { placement: ['TOO_SMALL', 'TOO_BIG', 'OFF_CENTER'], shape: ['SHAPE'], order: ['WRONG_ORDER', 'MISSING_STROKE', 'EXTRA_STROKE'], direction: ['WRONG_DIRECTION'] };
+const num = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+export function explainKo(result) {
+  const ex = explainScore(result);
+  const codes = result.issues.map((i) => i.code);
+  const partLabel = (key) => {
+    const rel = (PART_ISSUES[key] || []).filter((c) => codes.includes(c)).map((c) => ISSUE_NAMES_KO[c]);
+    return rel.length ? `${PART_KO[key]}(${rel.join('·')})` : PART_KO[key];
+  };
+  const out = [];
+  if (ex.binding) {
+    out.push({ kind: 'cap', text: `🔒 ${ISSUE_NAMES_KO[ex.binding.code] || ex.binding.code} → 최고 ${ex.binding.cap}` });
+    for (const c of ex.overlapped) out.push({ kind: 'muted', text: `겹침: ${ISSUE_NAMES_KO[c.code] || c.code}(최고 ${c.cap}) 추가 감점 없음` });
+    for (const d of ex.deductions) out.push({ kind: 'muted', text: `${partLabel(d.key)} −${num(d.lost)} 상한에 묻힘` });
+  } else {
+    for (const d of ex.deductions) out.push({ kind: 'minus', text: `${partLabel(d.key)} −${num(d.lost)}` });
+    for (const c of ex.caps) out.push({ kind: 'muted', text: `${ISSUE_NAMES_KO[c.code] || c.code}(최고 ${c.cap}) 점수가 이미 더 낮음` });
+  }
+  if (!out.length) out.push({ kind: 'ok', text: '감점 없음' });
+  return out;
+}
+
 // 소리로 들려줄 짧은 한 문장. 가장 중요한 문제 하나만 말한다.
 // 문제가 없고 점수도 괜찮으면 null(말하지 않음). 숫자는 소리로 읽기 쉽게 우리말로 쓴다(1번째 → 첫 번째).
 const ORDINAL = ['첫', '두', '세', '네', '다섯', '여섯'];
@@ -89,7 +114,7 @@ export function speechKo(result) {
   switch (it.code) {
     case 'WRONG_CHAR': return `다른 글자처럼 보여요. ${name}을 다시 써 봐요.`;
     case 'STROKES_JOINED': return '이어 쓰지 말고, 획을 나눠서 써요.';
-    case 'STROKE_SPLIT': return '한 획은 한 번에 그어요.';
+    case 'STROKE_SPLIT': return '끊지 말고 이어서 쓰세요.';
     case 'ALT_FORM': return `${name}은 ${KOR_COUNT[n] || n} 획으로 써요.`;
     case 'MISSING_STROKE': return '빠진 획이 있어요.';
     case 'EXTRA_STROKE': return '획을 더 그었어요.';

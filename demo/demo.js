@@ -1,6 +1,6 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
-import { feedbackKo, speechKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
+import { feedbackKo, speechKo, explainKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
 import { ENGINE_VERSION } from '../src/engine.js';
 import { submitAttempt, teacherLabel, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
 import { copyText } from './copy.js';
@@ -491,6 +491,13 @@ function scheduleAdvance() {
   }, ADVANCE_MS);
 }
 
+function whyLine(r) {
+  const box = document.createElement('div'); box.className = 'why';
+  const h = document.createElement('b'); h.textContent = '왜 이 점수?'; box.append(h);
+  for (const k of explainKo(r)) { const s = document.createElement('span'); s.className = `k-${k.kind}`; s.textContent = k.text; box.append(s); }
+  return box;
+}
+
 function showResult(r, attempt) {
   const el = $('result');
   el.replaceChildren();
@@ -503,6 +510,8 @@ function showResult(r, attempt) {
     row.innerHTML = `<span>${label}</span><i><span style="width:${pct}%"></span></i><span>${pct}</span>`;
     el.append(row);
   }
+  // 왜 이 점수인지 키워드로(교사·둘러보기만. 학생에게는 피드백 문장만 보인다)
+  if (!(writer && !isTeacher(writer))) el.append(whyLine(r));
   const ul = document.createElement('ul');
   for (const m of feedbackKo(r)) { const li = document.createElement('li'); li.textContent = m; ul.append(li); }
   el.append(ul);

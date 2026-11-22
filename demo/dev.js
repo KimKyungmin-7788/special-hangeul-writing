@@ -1,7 +1,7 @@
 // 글씨 채점실(개발자 전용): 학생·교사가 보낸 글씨를 쓴 순서·빠르기 그대로 다시 보고, 개발자 점수·문제·메모를 붙인다.
 // 엔진 점수는 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '엔진 점수 먼저 보기'로 바꿀 수 있다.
 import { evaluate, getTemplate } from '../src/engine.js';
-import { ISSUE_NAMES_KO } from '../src/feedback-ko.js';
+import { ISSUE_NAMES_KO, explainKo } from '../src/feedback-ko.js';
 import { auth, isDev, listAttempts, updateAttempt, deleteAttempt } from './server.js';
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
@@ -321,6 +321,9 @@ function open(id) {
     const add = (label, text) => reveal.append(el('div', {}, el('b', { textContent: `${label} ` }), text));
     add('보낼 때 엔진', `${r.engine_score}점 · ${issueNames(r.engine_issues)} (v${r.engine_version || '?'})`);
     add('지금 엔진', `${now.score}점 · ${issueNames(now.issues.map((i) => i.code))}`);
+    const why = el('div', { className: 'why' }, el('b', { textContent: '엔진이 이 점수를 준 이유' }));
+    for (const k of explainKo(now)) why.append(el('span', { className: `k-${k.kind}`, textContent: k.text }));
+    reveal.append(why);
     if (r.teacher_score != null) add('교사 표본', `${r.teacher_score}점 · ${r.teacher_issues ? issueNames(r.teacher_issues) : '문제 표시 안 함'}`);
     if (r.dev_score != null) {
       const diff = now.score - r.dev_score;
