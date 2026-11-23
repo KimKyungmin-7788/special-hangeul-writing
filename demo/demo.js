@@ -267,6 +267,22 @@ function fitModel() {
   drawModel();
 }
 
+// 연필 그림(기기마다 다른 이모지 대신 직접 그림). 연필 끝이 (x, y)에 닿고 몸통은 오른쪽 위로
+function drawPencil(c, x, y) {
+  c.save();
+  c.translate(x, y); c.rotate(-Math.PI / 4);
+  const L = 0.12, W = 0.022, tip = 0.03;
+  c.lineJoin = 'round'; c.lineWidth = 0.004; c.strokeStyle = '#495057';
+  // 깎인 나무와 심
+  c.fillStyle = '#f3d9a4'; c.beginPath(); c.moveTo(0, 0); c.lineTo(tip, -W / 2); c.lineTo(tip, W / 2); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#343a40'; c.beginPath(); c.moveTo(0, 0); c.lineTo(tip * 0.35, -W * 0.18); c.lineTo(tip * 0.35, W * 0.18); c.closePath(); c.fill();
+  // 노란 몸통, 쇠붙이, 지우개
+  c.fillStyle = '#fcc419'; c.fillRect(tip, -W / 2, L - tip - 0.03, W); c.strokeRect(tip, -W / 2, L - tip - 0.03, W);
+  c.fillStyle = '#adb5bd'; c.fillRect(L - 0.03, -W / 2, 0.012, W); c.strokeRect(L - 0.03, -W / 2, 0.012, W);
+  c.fillStyle = '#ff8787'; c.fillRect(L - 0.018, -W / 2, 0.018, W); c.strokeRect(L - 0.018, -W / 2, 0.018, W);
+  c.restore();
+}
+
 function drawModel() {
   if (!modelOn) return;
   const c = mctx, { spans, total } = modelPlan();
@@ -279,11 +295,7 @@ function drawModel() {
     if (pts.length === 1) c.lineTo(pts[0].x + 0.001, pts[0].y);
     c.stroke();
   };
-  c.clearRect(0, 0, 1, 1);
-  c.save(); c.setLineDash([0.015, 0.015]);
-  seg([{ x: 0.5, y: 0 }, { x: 0.5, y: 1 }], css('--line'), 0.004);
-  seg([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004);
-  c.restore();
+  c.clearRect(0, 0, 1, 1); // 시범 화면에는 십자선을 두지 않는다(학생이 쓰는 칸과 헷갈리지 않게)
   const tpl = getTemplate(current).strokes;
   tpl.forEach((s) => seg(s.points, css('--model-under'), 0.07)); // 글자 전체를 아주 옅게
   tpl.forEach((s, i) => {
@@ -293,7 +305,11 @@ function drawModel() {
     const pts = partialPath(s.points, k);
     seg(pts, css('--model-ink'), 0.05);
     // 지금 쓰는 획은 펜 끝을 보여 준다
-    if (k < 1) { const p = pts[pts.length - 1]; c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.018, 0, Math.PI * 2); c.fill(); }
+    if (k < 1) {
+      const p = pts[pts.length - 1];
+      c.fillStyle = css('--accent'); c.beginPath(); c.arc(p.x, p.y, 0.014, 0, Math.PI * 2); c.fill();
+      drawPencil(c, p.x, p.y); // 누가 쓰고 있는 걸 보는 느낌: 펜 끝에 연필
+    }
   });
   // 획 번호: 이미 시작한 획과 다음에 쓸 획의 시작점
   tpl.forEach((s, i) => {
@@ -337,6 +353,12 @@ for (const b of speedBtns) b.onclick = () => {
   try { localStorage.setItem(MODEL_SPEED_KEY, String(modelSpeed)); } catch {}
   syncModel();
 };
+// 시범 화면을 눌렀으면 학생 칸을 알려 준다
+model.addEventListener('pointerdown', () => {
+  toast('여기는 시범이에요. 왼쪽 칸에 써요 ✏️');
+  const w = $('padWrap'); w.classList.remove('nudge'); void w.offsetWidth; w.classList.add('nudge');
+  setTimeout(() => w.classList.remove('nudge'), 1900);
+});
 modelPlayBtn.onclick = () => {
   modelPlaying = !modelPlaying;
   try { localStorage.setItem(MODEL_PLAY_KEY, modelPlaying ? '1' : '0'); } catch {}
@@ -376,6 +398,7 @@ let autoRun = null;
 function cancelAuto() {
   if (autoRun) cancelAnimationFrame(autoRun.raf);
   autoRun = null;
+  $('autoBar').classList.remove('on'); $('autoBarFill').style.transform = 'scaleX(0)';
   $('padWrap').classList.remove('beat', 'last');
 }
 function pulse(last) {
@@ -392,8 +415,10 @@ function startAuto() {
   if (!(sec > 0) || !strokes.length) return; // 0초면 꺼짐
   const dur = sec * 1000, t0 = performance.now(), beats = Math.ceil(sec);
   let done = 0;
+  $('autoBar').classList.add('on');
   const tick = (now) => {
     const el = now - t0;
+    $('autoBarFill').style.transform = `scaleX(${Math.min(1, el / dur)})`; // 칸 위 진행 막대
     // 0초, 1초, 2초 ... 에 한 번씩 뛴다. 마지막 박동이 가장 크다
     while (done < beats && el >= done * 1000) { pulse(done === beats - 1); done++; }
     if (el >= dur) { cancelAuto(); score(); return; }
