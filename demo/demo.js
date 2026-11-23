@@ -449,6 +449,7 @@ function pulse(last) {
   heart(last ? 1.25 : 1);
   if ($('sfxOn').checked && navigator.vibrate) { try { navigator.vibrate(last ? [40, 120, 30] : [25, 120, 18]); } catch {} }
 }
+const AUTO_DELAY = 500; // 펜을 뗀 뒤 첫 꿀렁까지 잠깐 기다림(ms). 이어서 다음 획을 쓰려던 학생을 재촉하지 않게
 function startAuto() {
   cancelAuto();
   const sec = Number($('autoSec').value);
@@ -457,10 +458,11 @@ function startAuto() {
   let done = 0;
   $('autoBar').classList.add('on');
   const tick = (now) => {
-    const el = now - t0;
+    const el = now - t0 - AUTO_DELAY;
+    if (el < 0) { autoRun.raf = requestAnimationFrame(tick); return; }
     $('autoBarFill').style.transform = `scaleX(${Math.min(1, el / dur)})`; // 칸 위 진행(연필이 지나간 자리)
     $('autoPencil').style.left = `${Math.min(1, el / dur) * 100}%`;
-    // 0초, 1초, 2초 ... 에 한 번씩 뛴다. 마지막 박동이 가장 크다
+    // 기다린 뒤 0초, 1초, 2초 ... 에 한 번씩 뛴다. 마지막 박동이 가장 크다
     while (done < beats && el >= done * 1000) { pulse(done === beats - 1); done++; }
     if (el >= dur) { cancelAuto(); score(); return; }
     autoRun.raf = requestAnimationFrame(tick);
