@@ -349,29 +349,57 @@ function leaveViewing() {
   renderCarousel();
 }
 
-// ---------- 자동 제출 타이머 ----------
-// 펜을 떼면 쓰기 칸 오른쪽 위에서 원형 타이머가 돌고, 지정 시간(기본 3초) 안에 다음 획이 없으면 '다 썼어요'를 누른 것처럼 채점한다.
-const AUTO_R = 15, AUTO_C = 2 * Math.PI * AUTO_R; // 원 둘레
+// ---------- 자동 제출: 두근두근 카운트 ----------
+// 펜을 떼면 1초마다 쓰기 칸이 '쿵-쿵' 두 번 뛰며 반짝이고 두근 소리가 난다(설정한 초만큼: 1초면 한 번, 2초면 두 번).
+// 그사이 다음 획이 없으면 '다 썼어요'를 누른 것처럼 채점하고, 쓴 칸은 아래 캐러셀로 들어간다.
 let autoRun = null;
 function cancelAuto() {
   if (autoRun) cancelAnimationFrame(autoRun.raf);
   autoRun = null;
-  $('autoTimer').classList.remove('running');
+  $('padWrap').classList.remove('beat', 'last');
+}
+function pulse(last) {
+  $('padWrap').classList.remove('beat', 'last');
+  void $('padWrap').offsetWidth; // 애니메이션을 처음부터 다시
+  $('padWrap').classList.add('beat');
+  if (last) $('padWrap').classList.add('last');
+  heart(last ? 1.25 : 1);
+  if ($('sfxOn').checked && navigator.vibrate) { try { navigator.vibrate(last ? [40, 120, 30] : [25, 120, 18]); } catch {} }
 }
 function startAuto() {
   cancelAuto();
   const sec = Number($('autoSec').value);
   if (!(sec > 0) || !strokes.length) return; // 0초면 꺼짐
-  const dur = sec * 1000, t0 = performance.now();
-  $('autoTimer').classList.add('running');
+  const dur = sec * 1000, t0 = performance.now(), beats = Math.ceil(sec);
+  let done = 0;
   const tick = (now) => {
-    const used = Math.min(1, (now - t0) / dur);
-    $('autoRing').style.strokeDashoffset = String(AUTO_C * used);
-    $('autoNum').textContent = String(Math.max(1, Math.ceil((dur - (now - t0)) / 1000)));
-    if (used >= 1) { cancelAuto(); score(); return; }
+    const el = now - t0;
+    // 0초, 1초, 2초 ... 에 한 번씩 뛴다. 마지막 박동이 가장 크다
+    while (done < beats && el >= done * 1000) { pulse(done === beats - 1); done++; }
+    if (el >= dur) { cancelAuto(); score(); return; }
     autoRun.raf = requestAnimationFrame(tick);
   };
   autoRun = { raf: requestAnimationFrame(tick) };
+}
+
+// 두근 소리: 낮은 '쿵'과 조금 약한 '쿵'을 이어서(심장 소리). 작은 스피커에서도 들리게 배음을 섞는다
+function heart(strength = 1) {
+  if (!$('sfxOn').checked) return;
+  const ac = scratch.ctx(); if (!ac) return;
+  const t = ac.currentTime + 0.01;
+  const thump = (at, g) => {
+    for (const [type, f0, f1, mul] of [['sine', 95, 42, 1], ['triangle', 190, 84, 0.35]]) {
+      const o = ac.createOscillator(), gn = ac.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + 0.14);
+      gn.gain.setValueAtTime(0.0001, at);
+      gn.gain.exponentialRampToValueAtTime(Math.min(1, 0.8 * g * mul), at + 0.012);
+      gn.gain.exponentialRampToValueAtTime(0.0001, at + 0.2);
+      o.connect(gn).connect(ac.destination); o.start(at); o.stop(at + 0.24);
+    }
+  };
+  thump(t, strength);
+  thump(t + 0.17, 0.62 * strength);
 }
 
 // ---------- 서걱 소리 (Web Audio 잡음) ----------
@@ -389,7 +417,8 @@ const scratch = (() => {
   }
   return {
     start() { if (!ac) init(); ac.resume(); },
-    speed(v) { if (gain) gain.gain.setTargetAtTime(Math.min(0.25, v * 12), ac.currentTime, 0.02); },
+    ctx() { return ac || null; }, // 두근 소리도 같은 소리 장치를 쓴다(첫 터치에서 켜짐)
+    speed(v) { if (gain && $('sfxOn').checked) gain.gain.setTargetAtTime(Math.min(0.25, v * 12), ac.currentTime, 0.02); },
     stop() { if (gain) gain.gain.setTargetAtTime(0, ac.currentTime, 0.05); },
   };
 })();
@@ -820,7 +849,7 @@ $('doneBtn').onclick = score;
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
 $('voiceOn').addEventListener('change', () => { if (!$('voiceOn').checked) voice.stop(); });
-for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn', 'autoNext']) {
+for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn', 'autoNext', 'sfxOn']) {
   const el = $(id), key = 'hw-pref-' + id;
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
