@@ -94,8 +94,27 @@ for (const [group, defs] of Object.entries(GROUPS)) for (const [ch, def] of Obje
 // 획순은 자음을 다 쓴 뒤 ㅏ. ⚠ 실제 글자에서 자음 꼴(예: '가'의 ㄱ 세로가 비스듬함)은 교사 검수 후 다듬는다.
 const SYLLABLE_ROW = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 const CHOSEONG = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
-const CONS_BOX = { x0: 0.1, y0: 0.2, x1: 0.56, y1: 0.8 };
-const VOWEL_BOX = { x0: 0.64, y0: 0.1, x1: 0.88, y1: 0.9 };
+// 칸 안 자리: 교과서식 '한글 따라쓰기' 칸(가~하)의 글자를 픽셀로 재서 정했다(2026-11-23).
+//  cons: 자음 획 중심선이 차지하는 상자 [x0, y0, x1, y1] (글꼴 굵기 0.07의 절반만큼 안쪽으로)
+//  a: ㅏ [세로 x, 세로 위, 세로 아래, 짧은 가로 y, 짧은 가로 오른쪽 끝]
+const SYL_LAYOUT = {
+  'ㄱ': { cons: [0.223, 0.27, 0.517, 0.694], a: [0.715, 0.211, 0.847, 0.482, 0.844] },
+  'ㄴ': { cons: [0.255, 0.259, 0.611, 0.636], a: [0.726, 0.211, 0.847, 0.465, 0.843] },
+  'ㄷ': { cons: [0.243, 0.259, 0.577, 0.647], a: [0.709, 0.2, 0.836, 0.465, 0.834] },
+  'ㄹ': { cons: [0.235, 0.27, 0.583, 0.683], a: [0.711, 0.211, 0.847, 0.482, 0.83] },
+  'ㅁ': { cons: [0.218, 0.27, 0.465, 0.647], a: [0.677, 0.211, 0.847, 0.459, 0.806] },
+  'ㅂ': { cons: [0.23, 0.259, 0.489, 0.647], a: [0.701, 0.211, 0.847, 0.465, 0.831] },
+  'ㅅ': { cons: [0.193, 0.247, 0.583, 0.683], a: [0.715, 0.2, 0.836, 0.476, 0.838] },
+  'ㅇ': { cons: [0.223, 0.249, 0.517, 0.691], a: [0.709, 0.202, 0.846, 0.464, 0.832] },
+  'ㅈ': { cons: [0.206, 0.261, 0.611, 0.691], a: [0.726, 0.202, 0.846, 0.47, 0.855] },
+  'ㅊ': { cons: [0.218, 0.225, 0.613, 0.703], a: [0.74, 0.202, 0.846, 0.464, 0.858] },
+  'ㅋ': { cons: [0.223, 0.261, 0.534, 0.679], a: [0.711, 0.202, 0.846, 0.464, 0.83] },
+  'ㅌ': { cons: [0.255, 0.273, 0.599, 0.667], a: [0.726, 0.214, 0.858, 0.47, 0.843] },
+  'ㅍ': { cons: [0.218, 0.273, 0.624, 0.655], a: [0.738, 0.214, 0.858, 0.464, 0.855] },
+  'ㅎ': { cons: [0.205, 0.249, 0.571, 0.703], a: [0.709, 0.214, 0.858, 0.512, 0.826] },
+};
+// '가'·'카'의 ㄱ은 위를 가로로 긋고 왼쪽 아래로 휘어 내려온다(자음 상자 안 0~1 좌표). 재어 보니 끝이 거의 왼쪽 끝까지 온다
+const SLANT_G = [[0, 0], [1, 0], [0.97, 0.2], [0.81, 0.5], [0.5, 0.8], [0.08, 1]];
 function boxOf(strokes) {
   const pts = strokes.flatMap((s) => [...s.points, ...s.variants.flat()]);
   const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
@@ -108,16 +127,38 @@ function placeStrokes(strokes, to, from = boxOf(strokes)) {
   const f = (p) => ({ x: mx == null ? (to.x0 + to.x1) / 2 : to.x0 + (p.x - from.x0) * mx, y: my == null ? (to.y0 + to.y1) / 2 : to.y0 + (p.y - from.y0) * my });
   return strokes.map((s) => ({ ...s, points: resample(s.points.map(f)), variants: s.variants.map((v) => resample(v.map(f))) }));
 }
+const inBox = (b, pts) => pts.map(([u, v]) => ({ x: b[0] + u * (b[2] - b[0]), y: b[1] + v * (b[3] - b[1]) }));
 for (const c of SYLLABLE_ROW) {
-  const cons = templates[c], vow = templates['ㅏ'];
+  const cons = templates[c], L = SYL_LAYOUT[c];
   const ch = String.fromCharCode(0xAC00 + CHOSEONG.indexOf(c) * 21 * 28); // 초성 + ㅏ, 받침 없음
   const consBox = boxOf(cons.strokes);
-  const v = placeStrokes(vow.strokes, VOWEL_BOX);
+  const to = { x0: L.cons[0], y0: L.cons[1], x1: L.cons[2], y1: L.cons[3] };
+  let cs = placeStrokes(cons.strokes, to, consBox);
+  if (c === 'ㄱ' || c === 'ㅋ') {
+    // 첫 획(꺾임)을 비스듬히 휘는 꼴로. ㅋ의 가운데 가로는 그 휜 획에 닿는 곳까지
+    cs[0] = { ...cs[0], points: resample(inBox(L.cons, SLANT_G)), variants: [] };
+    if (c === 'ㅋ') cs[1] = { ...cs[1], points: resample(inBox(L.cons, [[0, 0.5], [0.81, 0.5]])), variants: [] };
+  }
+  if (c === 'ㅎ') {
+    // '하'의 ㅎ: 재어 보니 꼭지는 짧은 가로(세로 꼭지도 정답), 가로획 y 0.357, ㅇ은 살짝 넓은 타원
+    const P = (pts) => resample(pts.map(([x, y]) => ({ x, y })));
+    const ring = circlePoints(0, 0, 1).map((p) => [0.388 + p.x * 0.135, 0.584 + p.y * 0.122]);
+    cs = [
+      { ...cs[0], points: P([[0.29, 0.238], [0.475, 0.238]]), variants: [P([[0.382, 0.2], [0.382, 0.278]])] },
+      { ...cs[1], points: P([[0.19, 0.357], [0.585, 0.357]]), variants: [] },
+      { ...cs[2], points: P(ring), variants: [] },
+    ];
+  }
+  const [vx, vt, vb, hy, hx] = L.a;
+  const v = [
+    { type: '세로', closed: false, points: resample([{ x: vx, y: vt }, { x: vx, y: vb }]), variants: [] },
+    { type: '가로', closed: false, points: resample([{ x: vx, y: hy }, { x: hx, y: hy }]), variants: [] },
+  ];
   templates[ch] = {
     char: ch, name: ch, group: 'syllable',
     parts: [c, 'ㅏ'],
-    strokes: [...placeStrokes(cons.strokes, CONS_BOX, consBox), ...v],
-    altForms: cons.altForms.map((f) => [...placeStrokes(f, CONS_BOX, consBox), ...v]),
+    strokes: [...cs, ...v],
+    altForms: cons.altForms.map((f) => [...placeStrokes(f, to, consBox), ...v]),
   };
 }
 
