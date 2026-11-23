@@ -35,8 +35,8 @@ function pencilLine(c, points, width, rgb = '58,58,60', alpha = 1) {
   const pts = points.length === 1 ? [points[0], { x: points[0].x + 0.001, y: points[0].y }] : points;
   for (let k = 0; k < 5; k++) {
     const off = (k - 2) * width * 0.2;
-    c.strokeStyle = `rgba(${rgb},${alpha * (0.32 + (wob(k, 7) + 0.5) * 0.3)})`;
-    c.lineWidth = width * (0.3 + (wob(k, 3) + 0.5) * 0.18);
+    c.strokeStyle = `rgba(${rgb},${alpha * (0.6 + (wob(k, 7) + 0.5) * 0.3)})`; // 진한 연필(4B 정도)
+    c.lineWidth = width * (0.34 + (wob(k, 3) + 0.5) * 0.18);
     c.beginPath();
     pts.forEach((p, i) => {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
@@ -120,8 +120,8 @@ function drawGuide(upto = Infinity, partial = 1) {
 function redraw() {
   ctx.clearRect(0, 0, 1, 1);
   drawGuide();
-  for (const s of strokes) pencilLine(ctx, s, 0.04);
-  if (drawing) pencilLine(ctx, drawing, 0.04);
+  for (const s of strokes) pencilLine(ctx, s, 0.045);
+  if (drawing) pencilLine(ctx, drawing, 0.045);
 }
 
 // t: 이 글자의 첫 획을 시작한 뒤 지난 밀리초. 개발자 화면에서 쓴 순서·빠르기 그대로 다시 보여 줄 때 쓴다
