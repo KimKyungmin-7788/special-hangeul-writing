@@ -359,7 +359,13 @@
   .paper-col { min-width: 0; display: grid; gap: 14px; }
   /* 쓰는 종이·시범 두 칸은 늘 가운데. 쓴 글자 모음도 두 칸 너비에 맞춰 그 아래에 */
   .pad-row { justify-content: center; }
-  .carousel-wrap { width: 100%; max-width: calc(2 * var(--pad-size, 189px) + 28px); margin: 0 auto; }
+  /* 쓴 글자 모음은 맨 아래 한 줄을 가로로 다 쓴다 */
+  .work > .carousel-wrap { grid-column: 1 / -1; width: 100%; }
+  /* 넓은 화면: 버튼 | 쓰는 종이 · 시범 | 포스트잇 자리 한 줄. 포스트잇 칸은 비어 있어도 자리를 지켜 아무것도 움직이지 않는다 */
+  @media (min-width: 1000px) {
+    .work { grid-template-columns: 150px minmax(0, 1fr) 210px; }
+    .result.note { position: relative; grid-column: 3; grid-row: 1; top: auto; right: auto; width: auto; margin-top: 30px; }
+  }
   .model-wrap.off { visibility: hidden; }
   .carousel-wrap .empty { text-align: left; }
   .carousel-wrap { min-height: 136px; } /* 첫 글자가 쌓여도 페이지 길이가 바뀌지 않게 */
@@ -385,7 +391,8 @@
   /* 좁은 화면: 버튼은 종이 아래 한 줄, 포스트잇은 화면 오른쪽 아래에 */
   @media (max-width: 640px) {
     .work { grid-template-columns: minmax(0, 1fr); }
-    .side { order: 2; padding-top: 0; }
+    .side { order: 3; padding-top: 0; }
+    .work > .carousel-wrap { order: 2; }
     .side .main-tools { flex-direction: row; flex-wrap: wrap; }
     .side .main-tools .btn { width: auto; flex: 1 1 40%; }
     .result.note.phone { right: 0; width: calc(100% - 118px); padding: 10px 10px 8px; gap: 2px; }
@@ -499,12 +506,12 @@
           </div>
         </div>
         </div>
-        <div class="carousel-wrap">
-          <div class="carousel" id="carousel" role="list" aria-label="쓴 글자 모음"></div>
-          <p class="empty" id="carouselEmpty">다 쓴 글자가 여기에 차례로 쌓여요. 눌러서 다시 볼 수 있어요.</p>
-        </div>
       </div>
       <aside class="result note" id="result" aria-live="polite"></aside>
+    <div class="carousel-wrap">
+      <div class="carousel" id="carousel" role="list" aria-label="쓴 글자 모음"></div>
+      <p class="empty" id="carouselEmpty">다 쓴 글자가 여기에 차례로 쌓여요. 눌러서 다시 볼 수 있어요.</p>
+    </div>
     </div>
   </section>
 

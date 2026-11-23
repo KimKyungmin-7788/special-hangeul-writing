@@ -623,12 +623,13 @@ function placeNote() {
   const note = $('result'), side = document.querySelector('.side'), work = document.querySelector('.work');
   if (!note) return;
   if (innerWidth <= 640) { // 휴대폰: 쓴 글자 모음 오른쪽 빈자리에
-    const car = document.querySelector('.carousel-wrap');
+    const car = document.querySelector('.work > .carousel-wrap');
     note.classList.remove('left'); note.classList.add('phone');
     note.style.top = `${car.getBoundingClientRect().top - work.getBoundingClientRect().top}px`;
     return;
   }
   note.classList.remove('phone');
+  if (innerWidth >= 1000) { note.classList.remove('left'); note.style.top = ''; return; } // 넓은 화면은 오른쪽 포스트잇 칸(index.html)
   // 두 칸은 가운데 정렬이므로 오른쪽 빈자리 = (종이 줄 너비 − 두 칸 너비) / 2
   const free = ($('padRow').clientWidth - (2 * padSize + PAD_GAP)) / 2;
   const left = free < 218;
