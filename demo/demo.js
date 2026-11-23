@@ -368,7 +368,7 @@ function modelTick(ts) {
   modelRaf = requestAnimationFrame(modelTick);
 }
 function syncModel() {
-  modelWrap.hidden = !modelOn;
+  modelWrap.classList.toggle('off', !modelOn); // 꺼도 자리는 그대로 두어 쓰기 칸이 움직이지 않게
   document.querySelector('main').classList.toggle('with-model', modelOn);
   modelBtn.setAttribute('aria-pressed', String(modelOn));
   speedBtns.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === modelSpeed)));
@@ -385,7 +385,6 @@ modelBtn.onclick = () => {
   modelOn = !modelOn;
   try { localStorage.setItem(MODEL_ON_KEY, modelOn ? '1' : '0'); } catch {}
   syncModel();
-  setPadSize(padWanted, false); // 켜면 두 칸이 나란히 들어가도록 쓰기 칸을 줄이고, 끄면 되돌린다
 };
 for (const b of speedBtns) b.onclick = () => {
   modelSpeed = Number(b.dataset.speed);
@@ -618,6 +617,23 @@ function whyLine(r) {
 }
 
 // 채점 결과: 점수·등급·별과 한마디만. 선생님에게는 '자세히'(부분 점수·왜 이 점수)를 접어서 둔다
+// 포스트잇 자리: 시범 칸 오른쪽에 넉넉한 빈자리가 있으면 거기, 없으면(아이패드 세로 등) 왼쪽 버튼 아래 빈자리에.
+// 어느 쪽이든 떠 있어서 다른 것을 밀지 않는다
+function placeNote() {
+  const note = $('result'), side = document.querySelector('.side'), work = document.querySelector('.work');
+  if (!note) return;
+  if (innerWidth <= 640) { // 휴대폰: 쓴 글자 모음 오른쪽 빈자리에
+    const car = document.querySelector('.carousel-wrap');
+    note.classList.remove('left'); note.classList.add('phone');
+    note.style.top = `${car.getBoundingClientRect().top - work.getBoundingClientRect().top}px`;
+    return;
+  }
+  note.classList.remove('phone');
+  const free = work.clientWidth - side.offsetWidth - 22 - (2 * padSize + PAD_GAP);
+  const left = free < 250;
+  note.classList.toggle('left', left);
+  note.style.top = left ? `${side.offsetTop + side.offsetHeight + 14}px` : '';
+}
 function showResult(r) {
   const el = $('result');
   el.replaceChildren();
@@ -632,7 +648,11 @@ function showResult(r) {
     again.onclick = () => voice.say(line);
     msg.append(again);
   }
-  el.append(head, msg);
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'note-close';
+  close.textContent = '✕'; close.setAttribute('aria-label', '점수 닫기');
+  close.onclick = () => el.replaceChildren();
+  el.append(close, head, msg);
+  placeNote();
   if (writer && isTeacher(writer)) {
     const det = document.createElement('details'); det.className = 'more';
     const sum = document.createElement('summary'); sum.textContent = '자세히'; det.append(sum);
@@ -824,10 +844,9 @@ const padWrap = $('padWrap'), padHandle = $('padResize'), padLabel = $('padSizeL
 let padSize = PAD_MAX;
 let padWanted = PAD_MAX; // 선생님이 고른 크기. 모델링을 켜서 줄어들어도 끄면 이 크기로 돌아온다
 const padMax = () => {
-  const stage = padWrap.closest('.stage'), cs = getComputedStyle(stage);
-  const inner = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  // 모델링을 켜면 쓰기 칸과 모델링 칸이 사이 PAD_GAP을 두고 나란히 들어가야 한다
-  return Math.min(PAD_MAX, modelOn ? (inner - PAD_GAP) / 2 : inner);
+  // 시범을 켜든 끄든 쓰기 칸과 시범 칸이 사이 PAD_GAP을 두고 나란히 들어갈 크기(자리가 움직이지 않게)
+  const inner = $('padRow').clientWidth;
+  return Math.min(PAD_MAX, (inner - PAD_GAP) / 2);
 };
 const cmText = (px) => `${(px / PX_PER_CM).toFixed(1)}cm`;
 function setPadSize(px, save = true) {
@@ -842,6 +861,7 @@ function setPadSize(px, save = true) {
   padLabel.textContent = cmText(padSize);
   fitCanvas();
   fitModel();
+  placeNote();
   if (save) { try { localStorage.setItem(PAD_KEY, (padSize / PX_PER_CM).toFixed(2)); } catch {} }
 }
 let padDrag = null;
