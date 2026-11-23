@@ -629,8 +629,9 @@ function placeNote() {
     return;
   }
   note.classList.remove('phone');
-  const free = work.clientWidth - side.offsetWidth - 22 - (2 * padSize + PAD_GAP);
-  const left = free < 250;
+  // 두 칸은 가운데 정렬이므로 오른쪽 빈자리 = (종이 줄 너비 − 두 칸 너비) / 2
+  const free = ($('padRow').clientWidth - (2 * padSize + PAD_GAP)) / 2;
+  const left = free < 218;
   note.classList.toggle('left', left);
   note.style.top = left ? `${side.offsetTop + side.offsetHeight + 14}px` : '';
 }

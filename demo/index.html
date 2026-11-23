@@ -357,12 +357,14 @@
   .side .main-tools #doneBtn { font-size: 22px; padding: 12px 10px; }
   .side .toast { font-size: 18px; line-height: 1.35; }
   .paper-col { min-width: 0; display: grid; gap: 14px; }
-  .pad-row { justify-content: flex-start; }
+  /* 쓰는 종이·시범 두 칸은 늘 가운데. 쓴 글자 모음도 두 칸 너비에 맞춰 그 아래에 */
+  .pad-row { justify-content: center; }
+  .carousel-wrap { width: 100%; max-width: calc(2 * var(--pad-size, 189px) + 28px); margin: 0 auto; }
   .model-wrap.off { visibility: hidden; }
   .carousel-wrap .empty { text-align: left; }
   .carousel-wrap { min-height: 136px; } /* 첫 글자가 쌓여도 페이지 길이가 바뀌지 않게 */
   /* 포스트잇 점수 */
-  .result.note { position: absolute; z-index: 20; top: 26px; right: 0; width: 230px; max-width: calc(100% - 16px);
+  .result.note { position: absolute; z-index: 20; top: 26px; right: 0; width: 210px; max-width: calc(100% - 16px);
     display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px 14px 12px; border: 0; border-radius: 2px 2px 14px 2px;
     background: #fff1a6; box-shadow: 0 1px 0 rgba(0,0,0,.05), 4px 10px 18px rgba(60,45,20,.22); transform: rotate(1.6deg); animation: stick .28s ease-out; }
   .result.note:empty { display: none; }
