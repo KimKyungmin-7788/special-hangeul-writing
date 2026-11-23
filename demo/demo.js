@@ -27,6 +27,29 @@ function fitCanvas() {
   redraw();
 }
 
+// 연필 선: 흑연 가닥 여러 개를 살짝 어긋나게 겹친다. 같은 획은 다시 그려도 같은 모양이 되도록 점 번호로 흔들림을 정한다
+const wob = (i, k) => { const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return v - Math.floor(v) - 0.5; };
+function pencilLine(c, points, width, rgb = '58,58,60', alpha = 1) {
+  if (!points.length) return;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  const pts = points.length === 1 ? [points[0], { x: points[0].x + 0.001, y: points[0].y }] : points;
+  for (let k = 0; k < 5; k++) {
+    const off = (k - 2) * width * 0.2;
+    c.strokeStyle = `rgba(${rgb},${alpha * (0.32 + (wob(k, 7) + 0.5) * 0.3)})`;
+    c.lineWidth = width * (0.3 + (wob(k, 3) + 0.5) * 0.18);
+    c.beginPath();
+    pts.forEach((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
+      const o = off + wob(i, k) * width * 0.12;
+      const x = p.x - (dy / L) * o, y = p.y + (dx / L) * o;
+      if (i) c.lineTo(x, y); else c.moveTo(x, y);
+    });
+    c.stroke();
+  }
+  c.restore();
+}
+
 function line(points, color, width) {
   if (!points.length) return;
   ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -85,10 +108,11 @@ function drawGuide(upto = Infinity, partial = 1) {
     line(pts, css('--guide'), 0.07);
     // 획 번호와 시작점
     const p = s.points[0];
-    ctx.fillStyle = css('--accent');
-    ctx.beginPath(); ctx.arc(p.x, p.y, 0.022, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 0.03px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(i + 1), p.x, p.y + 0.001);
+    // 시작점: 빨간 색연필 동그라미, 번호는 그 왼쪽 위에
+    ctx.strokeStyle = css('--red-pencil'); ctx.lineWidth = 0.006;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 0.026, 0.25, Math.PI * 2.1); ctx.stroke();
+    ctx.fillStyle = css('--red-pencil'); ctx.font = 'bold 0.07px Gaegu, system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), p.x - 0.052, p.y - 0.04);
   });
   ctx.restore();
 }
@@ -96,8 +120,8 @@ function drawGuide(upto = Infinity, partial = 1) {
 function redraw() {
   ctx.clearRect(0, 0, 1, 1);
   drawGuide();
-  for (const s of strokes) line(s, css('--pen'), 0.035);
-  if (drawing) line(drawing, css('--pen'), 0.035);
+  for (const s of strokes) pencilLine(ctx, s, 0.04);
+  if (drawing) pencilLine(ctx, drawing, 0.04);
 }
 
 // t: 이 글자의 첫 획을 시작한 뒤 지난 밀리초. 개발자 화면에서 쓴 순서·빠르기 그대로 다시 보여 줄 때 쓴다
@@ -176,13 +200,8 @@ function drawThumb(canvas, strokesToDraw) {
   c.clearRect(0, 0, 1, 1);
   c.strokeStyle = css('--line'); c.lineWidth = 1 / size; c.setLineDash([3 / size, 3 / size]);
   c.beginPath(); c.moveTo(0.5, 0); c.lineTo(0.5, 1); c.moveTo(0, 0.5); c.lineTo(1, 0.5); c.stroke();
-  c.setLineDash([]); c.strokeStyle = css('--pen'); c.lineWidth = 0.05; c.lineCap = 'round'; c.lineJoin = 'round';
-  for (const st of strokesToDraw) {
-    c.beginPath(); c.moveTo(st[0].x, st[0].y);
-    for (const p of st.slice(1)) c.lineTo(p.x, p.y);
-    if (st.length === 1) c.lineTo(st[0].x + 0.001, st[0].y);
-    c.stroke();
-  }
+  c.setLineDash([]);
+  for (const st of strokesToDraw) pencilLine(c, st, 0.06);
 }
 
 function renderCarousel() {
@@ -418,7 +437,8 @@ function startAuto() {
   $('autoBar').classList.add('on');
   const tick = (now) => {
     const el = now - t0;
-    $('autoBarFill').style.transform = `scaleX(${Math.min(1, el / dur)})`; // 칸 위 진행 막대
+    $('autoBarFill').style.transform = `scaleX(${Math.min(1, el / dur)})`; // 칸 위 진행(연필이 지나간 자리)
+    $('autoPencil').style.left = `${Math.min(1, el / dur) * 100}%`;
     // 0초, 1초, 2초 ... 에 한 번씩 뛴다. 마지막 박동이 가장 크다
     while (done < beats && el >= done * 1000) { pulse(done === beats - 1); done++; }
     if (el >= dur) { cancelAuto(); score(); return; }
