@@ -354,3 +354,18 @@ test('채점실 표본과 엔진 차이 (보고만)', async (t) => {
   const mae = d.reduce((a, v) => a + Math.abs(v), 0) / (d.length || 1);
   t.diagnostic(`채점실 표본 ${ss.length}개: 평균 차이 ${mae.toFixed(1)}점, 15점 넘게 어긋남 ${d.filter((v) => Math.abs(v) > 15).length}개`);
 });
+
+test('운동 지원: 운동 조절 문제(나눠 씀·넘어감)는 너그럽게, 배워야 할 오류(획순·다른 글자)는 그대로', async () => {
+  const { ISSUE_KIND } = await import('../src/engine.js');
+  const g = getTemplate('ㄱ').strokes[0].points;
+  const split = [jitter(g.slice(0, 16)), jitter(g.slice(15))];
+  const a = evaluate('ㄱ', split), b = evaluate('ㄱ', split, { motorSupport: true });
+  assert.equal(a.issues[0].kind, 'motor');
+  assert.ok(b.score > a.score && b.score <= 88, `${a.score} → ${b.score}`);
+  assert.equal(b.motorSupport, true);
+  const order = perfect('ㅏ').reverse();
+  assert.equal(evaluate('ㅏ', order).score, evaluate('ㅏ', order, { motorSupport: true }).score);
+  for (const c of ['WRONG_CHAR', 'WRONG_ORDER', 'WRONG_DIRECTION', 'MISSING_STROKE']) assert.equal(ISSUE_KIND[c], 'error');
+  // 바르게 쓴 글자는 운동 지원과 상관없이 높다
+  for (const ch of listChars()) assert.ok(evaluate(ch, perfect(ch), { motorSupport: true }).score >= 90, ch);
+});

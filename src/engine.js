@@ -48,6 +48,18 @@ const OVER_CAP = 40;
 const GAP_OK = 0.08;
 const GAP_BAD = 0.25;
 const GAP_CAP = 50;
+// 문제 종류: 'error' 글자를 바르게 알면 고칠 수 있는 오류(배워야 할 것) · 'motor' 손의 운동 조절에서 오기 쉬운 것.
+// 운동 지원을 켠 학생은 motor 문제를 너그럽게 채점한다(장애 특성으로 생기는 어려움을 벌점으로 만들지 않기 위해).
+export const ISSUE_KIND = {
+  WRONG_CHAR: 'error', WRONG_ORDER: 'error', WRONG_DIRECTION: 'error', MISSING_STROKE: 'error', EXTRA_STROKE: 'error',
+  STROKES_JOINED: 'error', ALT_FORM: 'error', EMPTY: 'error',
+  STROKE_SPLIT: 'motor', OVERSHOOT: 'motor', GAP: 'motor', SHAPE: 'motor', TOO_SMALL: 'motor', TOO_BIG: 'motor', OFF_CENTER: 'motor',
+};
+// 운동 지원 규칙. ⚠ 아직 운동 지원 학생 표본이 없어 정한 값이다. 표본이 쌓이면 다시 맞춘다
+const BASE_RULES = { splitCap: CAPS.STROKE_SPLIT, overOk: OVER_OK, overBad: OVER_BAD, gapOk: GAP_OK, gapBad: GAP_BAD, tolMul: 1 };
+const MOTOR_RULES = { splitCap: 88, overOk: 0.07, overBad: 0.16, gapOk: 0.12, gapBad: 0.30, tolMul: 1.15 };
+let R = BASE_RULES; // evaluate 하는 동안 쓰는 규칙
+
 // 실수로 찍힌 점(이보다 짧은 획)은 무시한다(칸 대비)
 const MIN_STROKE = 0.02;
 // 연달아 그은 두 획의 끝·시작이 이만큼 가까우면 '펜을 뗐다 이어 쓴 한 획'으로 본다(칸 대비)
@@ -242,7 +254,19 @@ function prepare(strokes) {
 export function evaluate(char, userStrokes, opts = {}) {
   const tpl = templates[char];
   if (!tpl) throw new Error(`획 데이터가 없는 글자: ${char}`);
-  const tol = toleranceOf(opts);
+  R = opts.motorSupport ? MOTOR_RULES : BASE_RULES;
+  try { return withKinds(evaluateWith(char, tpl, userStrokes, opts), !!opts.motorSupport); } finally { R = BASE_RULES; }
+}
+
+// 문제마다 종류(error/motor)를 달고, 운동 지원 여부를 결과에 남긴다
+function withKinds(r, motor) {
+  for (const it of r.issues) it.kind = ISSUE_KIND[it.code] || 'error';
+  r.motorSupport = motor;
+  return r;
+}
+
+function evaluateWith(char, tpl, userStrokes, opts) {
+  const tol = toleranceOf(opts) * R.tolMul;
   let user = prepare((userStrokes || []).filter((s) => s && s.length && pathLength(s) >= MIN_STROKE));
   const rawStrokes = user.length;
   let result = scoreBest(tpl, user, tol);
@@ -258,7 +282,7 @@ export function evaluate(char, userStrokes, opts = {}) {
       if (r2.parts.shape > result.parts.shape) {
         r2.issues = r2.issues.filter((i) => i.code !== 'STROKE_SPLIT');
         r2.issues.unshift({ code: 'STROKE_SPLIT', split: m.split });
-        capScore(r2, CAPS.STROKE_SPLIT, 'STROKE_SPLIT');
+        capScore(r2, R.splitCap, 'STROKE_SPLIT');
         r2.measures.mergedPieces = m.merges;
         result = r2;
         user = m.strokes;
@@ -537,14 +561,14 @@ function scoreAgainst(char, tStrokes, user, tol) {
         if (!gapAt || gap > gapAt.gap) gapAt = { ...jn, gap };
       }
     }
-    if (overAt && overAt.len > OVER_OK) {
-      const j = clamp01(1 - (overAt.len - OVER_OK) / (OVER_BAD - OVER_OK));
+    if (overAt && overAt.len > R.overOk) {
+      const j = clamp01(1 - (overAt.len - R.overOk) / (R.overBad - R.overOk));
       overCap = Math.round(OVER_CAP + (100 - OVER_CAP) * j);
       addCap(caps, 'OVERSHOOT', overCap);
       issues.unshift({ code: 'OVERSHOOT', stroke: overAt.a, into: overAt.b, length: overAt.len });
     }
-    if (gapAt && gapAt.gap > GAP_OK) {
-      const j = clamp01(1 - (gapAt.gap - GAP_OK) / (GAP_BAD - GAP_OK));
+    if (gapAt && gapAt.gap > R.gapOk) {
+      const j = clamp01(1 - (gapAt.gap - R.gapOk) / (R.gapBad - R.gapOk));
       const gapCap = Math.round(GAP_CAP + (100 - GAP_CAP) * j);
       overCap = Math.min(overCap, gapCap);
       addCap(caps, 'GAP', gapCap);
@@ -555,7 +579,10 @@ function scoreAgainst(char, tStrokes, user, tol) {
   const parts = { order, direction, shape, placement };
   let score = Math.round(Object.entries(WEIGHTS).reduce((a, [key, w]) => a + w * parts[key], 0));
   const uncapped = score;
-  for (const it of issues) if (CAPS[it.code] !== undefined) { score = Math.min(score, CAPS[it.code]); addCap(caps, it.code, CAPS[it.code]); }
+  for (const it of issues) if (CAPS[it.code] !== undefined) {
+    const cap = it.code === 'STROKE_SPLIT' ? R.splitCap : CAPS[it.code];
+    score = Math.min(score, cap); addCap(caps, it.code, cap);
+  }
   const joinedIssue = issues.find((i) => i.code === 'STROKES_JOINED');
   if (joinedIssue) { score = Math.min(score, joinedCap(joinedIssue.joins)); addCap(caps, 'STROKES_JOINED', joinedCap(joinedIssue.joins)); }
   score = Math.min(score, overCap);
