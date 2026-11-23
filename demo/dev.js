@@ -1,7 +1,7 @@
 // 글씨 채점실(개발자 전용): 학생·교사가 보낸 글씨를 쓴 순서·빠르기 그대로 다시 보고, 개발자 점수·문제·메모를 붙인다.
-// 엔진 점수는 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '엔진 점수 먼저 보기'로 바꿀 수 있다.
-import { evaluate, getTemplate } from '../src/engine.js';
-import { ISSUE_NAMES_KO, explainKo, speechKo, speechCase } from '../src/feedback-ko.js';
+// 앱 채점(엔진)은 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '앱 채점 먼저 보기'로 바꿀 수 있다.
+import { evaluate, getTemplate, explainScore } from '../src/engine.js';
+import { ISSUE_NAMES_KO, speechKo, speechCase } from '../src/feedback-ko.js';
 import { LABELS, GROUPS as LABEL_GROUPS, EXCLUDE, LABEL_BY_CODE, parseLabel, labelCodes, engineToLabels, primaryLabel, migrateLabels, migrateFeedback } from '../src/labels.js';
 import { createLabelPicker } from './label-picker.js';
 import { auth, isDev, listAttempts, listBatches, submitBatch, updateAttempt, deleteAttempt } from './server.js';
@@ -132,7 +132,7 @@ async function refreshSync() {
   const pendingN = pending.reduce((a, b) => a + b.item_count, 0);
   const failed = batches.find((b) => b.status === 'failed');
   box.replaceChildren(
-    el('b', { textContent: '🧠 엔진 반영' }),
+    el('b', { textContent: '🧠 앱에 반영' }),
     el('span', {}, '마지막 반영 ', el('span', { className: 'num', textContent: applied ? fmtDate(applied.applied_at) : '아직 없음' }),
       applied?.summary ? el('span', { className: 'muted', textContent: ` (${applied.summary.split('\n')[0]})` }) : ''),
     el('span', { className: unsent ? 'warn' : 'ok' }, '반영 안 된 채점 ', el('span', { className: 'num', textContent: `${unsent}개` })),
@@ -335,7 +335,7 @@ function open(id) {
   const when = new Date(r.created_at).toLocaleString('ko-KR');
   d.append(el('div', { className: 'head' },
     el('b', { textContent: r.ch }), el('span', { textContent: r.writer }),
-    el('span', { className: 'muted', textContent: `${when} · ${DEVICE[r.device] || r.device} · ${r.strokes.length}획 · 엔진 ${r.engine_version || '?'}` })));
+    el('span', { className: 'muted', textContent: `${when} · ${DEVICE[r.device] || r.device} · ${r.strokes.length}획 · 앱 채점 v${r.engine_version || '?'}` })));
 
   // 왼쪽: 다시 보기
   const left = el('div');
@@ -406,45 +406,67 @@ function open(id) {
     el('h3', { textContent: '기준·메모 (직접 입력)' }), note,
     el('div', { className: 'actions' }, saveBtn, nextBtn, delBtn), msg, reveal);
 
+  // 내 채점과 앱 채점(엔진)을 나란히. 화면에는 '엔진' 대신 '앱'이라고 쓴다
   const showReveal = () => {
     reveal.replaceChildren();
     if (r.dev_score == null && !$('showEngine').checked) {
-      reveal.append(el('span', { className: 'hidden-note', textContent: '엔진 점수는 개발자 점수를 저장하면 보여요.' }));
+      reveal.append(el('span', { className: 'hidden-note', textContent: '앱 채점은 내 점수를 저장하면 보여요.' }));
       return;
     }
     const now = evaluate(r.ch, r.strokes.map((s) => s.map(([x, y]) => ({ x, y }))), { device: r.device });
-    const add = (label, text) => reveal.append(el('div', {}, el('b', { textContent: `${label} ` }), text));
-    add('보낼 때 엔진', `${r.engine_score}점 · ${issueNames(r.engine_issues)} (v${r.engine_version || '?'})`);
-    add('지금 엔진', `${now.score}점 · ${issueNames(now.issues.map((i) => i.code))}`);
-    const why = el('div', { className: 'why' }, el('b', { textContent: '엔진이 이 점수를 준 이유' }));
-    for (const k of explainKo(now)) why.append(el('span', { className: `k-${k.kind}`, textContent: k.text }));
-    reveal.append(why);
-    if (r.teacher_score != null) add('교사 표본', `${r.teacher_score}점 · ${labelNames(migrateLabels(r.teacher_issues))}`);
-    if (r.dev_score != null) {
+    const mine = migrateLabels(r.dev_issues);
+    const excluded = mine?.[0] === EXCLUDE.code;
+    const appLabels = engineToLabels(now.issues);
+    const names = (codes) => (codes.length ? codes.map((c) => LABEL_BY_CODE[c]?.name || c).join(', ') : '문제 없음');
+    const col = (title, score, sub) => el('div', { className: 'vs-col' },
+      el('div', { className: 'vs-t', textContent: title }), el('div', { className: 'vs-s', textContent: score }), el('div', { className: 'vs-i', textContent: sub }));
+    reveal.append(el('div', { className: 'vs' },
+      col('내 채점', excluded ? '제외' : r.dev_score != null ? `${r.dev_score}점` : '—', mine ? (excluded ? '채점 제외' : labelNames(mine)) : '항목 안 고름'),
+      col('앱 채점', `${now.score}점`, names(appLabels))));
+    if (r.teacher_score != null) reveal.append(el('div', { className: 'vs-note', textContent: `교사가 쓰면서 매긴 점수: ${r.teacher_score}점 · ${labelNames(migrateLabels(r.teacher_issues))}` }));
+
+    const line = (ok, text) => reveal.append(el('div', { className: ok ? 'v-ok' : 'v-warn', textContent: `${ok ? '✓' : '!'} ${text}` }));
+    if (r.dev_score != null && !excluded) {
       const diff = now.score - r.dev_score;
-      add('개발자', `${r.dev_score}점 · ${labelNames(migrateLabels(r.dev_issues))}`);
-      reveal.append(el('div', { className: 'diff-big', textContent: `지금 엔진 − 개발자 = ${diff > 0 ? '+' : ''}${diff}점` }));
-      const mine = migrateLabels(r.dev_issues);
-      if (mine && mine[0] !== EXCLUDE.code) {
-        // 항목 비교(평가 항목 기준)
-        const got = engineToLabels(now.issues), want = labelCodes(mine);
-        const miss = want.filter((c) => !got.includes(c)), extra = got.filter((c) => !want.includes(c));
-        if (miss.length) add('엔진이 놓친 항목', miss.map((c) => LABEL_BY_CODE[c]?.name || c).join(', '));
-        if (extra.length) add('엔진만 짚은 항목', extra.map((c) => LABEL_BY_CODE[c]?.name || c).join(', '));
-        // 학생에게 할 말 비교: 엔진이 실제로 한 말의 항목 vs 개발자 기준(★ 또는 우선순위)
-        const engFirst = engineToLabels([speechCase(now)])[0] || null, devFirst = primaryLabel(mine, migrateFeedback(r.dev_feedback));
-        const cmp = el('div', { className: 'cmp' });
-        cmp.append(el('div', {}, el('b', { textContent: '엔진이 한 말 ' }), speechKo(now) ? `“${speechKo(now)}”` : '(말하지 않음 · 화면 칭찬)'));
-        if (devFirst) cmp.append(el('div', {}, el('b', { textContent: '먼저 말할 것(개발자) ' }), `${LABEL_BY_CODE[devFirst].name} “${SAY[devFirst]}”`));
-        if (devFirst || engFirst) cmp.append(devFirst === engFirst ? el('div', { className: 'same', textContent: '✓ 같은 것을 먼저 말해요' })
-          : el('div', { className: 'diffr', textContent: '✗ 엔진이 다른 것을 먼저 말했어요' }));
-        reveal.append(cmp);
+      line(Math.abs(diff) <= 5, diff === 0 ? '점수가 같아요.' : Math.abs(diff) <= 5 ? `점수가 비슷해요(${Math.abs(diff)}점 차이).`
+        : `앱이 ${Math.abs(diff)}점 ${diff > 0 ? '높게' : '낮게'} 줬어요.`);
+    }
+    if (mine && !excluded) {
+      const want = labelCodes(mine);
+      const miss = want.filter((c) => !appLabels.includes(c)), extra = appLabels.filter((c) => !want.includes(c));
+      if (!miss.length && !extra.length) line(true, '같은 문제를 찾았어요.');
+      if (miss.length) line(false, `앱이 못 본 문제: ${names(miss)}`);
+      if (extra.length) line(false, `앱만 짚은 문제: ${names(extra)}`);
+      // 학생에게 먼저 할 말
+      const said = speechKo(now);
+      const appFirst = engineToLabels([speechCase(now)])[0] || null, myFirst = primaryLabel(mine, migrateFeedback(r.dev_feedback));
+      if (myFirst || appFirst) {
+        if (myFirst === appFirst) line(true, `학생에게 같은 말을 먼저 해요: “${said || SAY[myFirst]}”`);
+        else {
+          line(false, '학생에게 먼저 할 말이 달라요.');
+          reveal.append(el('div', { className: 'v-sub', textContent: `앱: ${said ? `“${said}”` : '(말하지 않고 칭찬)'}` }),
+            el('div', { className: 'v-sub', textContent: `나: ${myFirst ? `${LABEL_BY_CODE[myFirst].name} — “${SAY[myFirst]}”` : '(말할 것 없음)'}` }));
+        }
       }
     }
+    // 앱 점수가 나온 까닭(펼쳐 보기)
+    const ex = explainScore(now);
+    const PART = { order: '획순', direction: '방향', shape: '모양', placement: '자리·크기' };
+    const cut = ex.deductions.map((d) => `${PART[d.key]} ${Math.round(d.lost)}점`).join(', ');
+    const why = [];
+    if (ex.binding) {
+      why.push(`‘${ISSUE_NAMES_KO[ex.binding.code] || ex.binding.code}’ 문제가 있으면 앱은 ${ex.binding.cap}점까지만 줘요.`);
+      if (cut) why.push(`모양 등에서 깎인 점수(${cut})는 이미 그보다 낮지 않아서 더 깎지 않았어요.`);
+    } else if (cut) why.push(`100점에서 ${cut}을 깎았어요.`);
+    else why.push('깎은 점수가 없어요.');
+    if (r.engine_score != null && r.engine_score !== now.score) why.push(`보낼 때 앱 점수는 ${r.engine_score}점이었어요(그 뒤 앱 채점 규칙이 바뀜).`);
+    const det = el('details', { className: 'v-why' }, el('summary', { textContent: '앱 점수가 나온 까닭' }));
+    for (const t of why) det.append(el('div', { textContent: t }));
+    reveal.append(det);
   };
   showReveal();
 
-  // 저장: 입력을 바꾸면 1초 뒤 자동 저장(엔진 점수는 아직 안 보임). '저장하고 엔진 보기'나 다음 글씨로 넘어가면 바로 저장
+  // 저장: 입력을 바꾸면 1초 뒤 자동 저장(앱 채점은 아직 안 보임). '저장하고 앱 채점과 비교'나 다음 글씨로 넘어가면 바로 저장
   // 다시 고치면 batch_id를 비워 '반영 안 됨'으로 돌린다(다음 제출에 들어감)
   const validScore = () => { const v = Number(scoreIn.value); return scoreIn.value !== '' && Number.isInteger(v) && v >= 0 && v <= 100 ? v : null; };
   const isExcluded = () => (picker.get().labels || [])[0] === EXCLUDE.code;
@@ -468,7 +490,7 @@ function open(id) {
   const changed = () => { dirty = true; auto.textContent = validScore() == null && !isExcluded() ? '' : '저장 중…'; clearTimeout(timer); timer = setTimeout(persist, 1000); };
   flushSave = persist;
   const auto = el('span', { className: 'autosaved' }); auto.setAttribute('aria-live', 'polite');
-  saveBtn.textContent = '저장하고 엔진 보기';
+  saveBtn.textContent = '저장하고 앱 채점과 비교';
   saveBtn.after(auto);
   saveBtn.onclick = async () => {
     if (validScore() == null && !isExcluded()) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
