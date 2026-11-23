@@ -343,3 +343,14 @@ test('점수 풀이: 상한이 점수를 정하면 그 문제를, 겹친 문제�
     assert.equal(rr.score, x.binding ? x.binding.cap : Math.min(x.fromParts, x.caps[0]?.cap ?? 100), `${ch} ${rr.score} ${JSON.stringify(x)}`);
   }
 });
+
+// 채점실에서 제출되어 반영된 표본(test/server-samples). 엔진을 고치기 전까지는 실패로 보지 않고 정확도만 알린다.
+test('채점실 표본과 엔진 차이 (보고만)', async (t) => {
+  const fs = await import('node:fs');
+  const f = new URL('./server-samples/labeled.json', import.meta.url);
+  if (!fs.existsSync(f)) { t.diagnostic('채점실 표본이 아직 없음'); return; }
+  const ss = JSON.parse(fs.readFileSync(f, 'utf8')).samples;
+  const d = ss.map((s) => evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }).score - s.teacherScore);
+  const mae = d.reduce((a, v) => a + Math.abs(v), 0) / (d.length || 1);
+  t.diagnostic(`채점실 표본 ${ss.length}개: 평균 차이 ${mae.toFixed(1)}점, 15점 넘게 어긋남 ${d.filter((v) => Math.abs(v) > 15).length}개`);
+});

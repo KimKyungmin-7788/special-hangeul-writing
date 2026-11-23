@@ -3,7 +3,7 @@
 import { evaluate, getTemplate } from '../src/engine.js';
 import { ISSUE_NAMES_KO, explainKo, speechKo, speechCase } from '../src/feedback-ko.js';
 import { FEEDBACK_CASES, CASE_BY_ID, CASE_GROUPS } from './feedback-cases.js';
-import { auth, isDev, listAttempts, updateAttempt, deleteAttempt } from './server.js';
+import { auth, isDev, listAttempts, listBatches, submitBatch, updateAttempt, deleteAttempt } from './server.js';
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
 const $ = (id) => document.getElementById(id);
@@ -43,7 +43,7 @@ async function enter() {
   } catch { return; }
   $('login').hidden = true; $('app').hidden = false; $('me').hidden = false;
   $('meEmail').textContent = session.email || '';
-  load();
+  load(); refreshSync();
 }
 $('loginBtn').onclick = async () => {
   $('loginErr').textContent = '';
@@ -104,6 +104,40 @@ $('refresh').onclick = () => load();
 const SHOW_KEY = 'hw-dev-showEngine';
 try { $('showEngine').checked = localStorage.getItem(SHOW_KEY) === '1'; } catch {}
 $('showEngine').onchange = () => { try { localStorage.setItem(SHOW_KEY, $('showEngine').checked ? '1' : '0'); } catch {} if (current) open(current); };
+
+// ---------- 엔진 반영 상태와 제출하기 ----------
+// 채점은 자동 저장되고, '제출하기'를 누르면 묶음으로 넘어간다. 매일 자동 처리가 묶음을 받아 엔진 표본에 반영하고 반영 날짜를 남긴다.
+// 제출한 뒤 다시 고친 채점은 '반영 안 됨'으로 돌아가 다음 제출에 들어간다.
+const fmtDate = (s) => { const d = new Date(s); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+async function refreshSync() {
+  const box = $('sync');
+  let unsent = 0, batches = [];
+  try {
+    unsent = (await withAuth((t) => listAttempts(t, 'select=id&dev_score=not.is.null&batch_id=is.null&limit=1'))).total;
+    batches = (await withAuth((t) => listBatches(t, 'select=*&order=created_at.desc&limit=50'))).rows;
+  } catch { box.textContent = '반영 상태를 불러오지 못했어요.'; return; }
+  const applied = batches.find((b) => b.status === 'applied');
+  const pending = batches.filter((b) => b.status === 'submitted');
+  const pendingN = pending.reduce((a, b) => a + b.item_count, 0);
+  const failed = batches.find((b) => b.status === 'failed');
+  box.replaceChildren(
+    el('b', { textContent: '🧠 엔진 반영' }),
+    el('span', {}, '마지막 반영 ', el('span', { className: 'num', textContent: applied ? fmtDate(applied.applied_at) : '아직 없음' }),
+      applied?.summary ? el('span', { className: 'muted', textContent: ` (${applied.summary.split('\n')[0]})` }) : ''),
+    el('span', { className: unsent ? 'warn' : 'ok' }, '반영 안 된 채점 ', el('span', { className: 'num', textContent: `${unsent}개` })),
+    pendingN ? el('span', {}, '제출됨·처리 대기 ', el('span', { className: 'num', textContent: `${pendingN}개` }), el('span', { className: 'muted', textContent: ` (${fmtDate(pending.at(-1).created_at)} 제출, 매일 자동 처리)` })) : '',
+    failed && (!applied || failed.created_at > applied.created_at) ? el('span', { className: 'warn', textContent: `처리 실패: ${failed.summary || ''}` }) : '',
+    el('span', { className: 'sp' }));
+  const btn = el('button', { className: 'btn primary', type: 'button', textContent: unsent ? `제출하기 (${unsent}개)` : '제출할 채점 없음', disabled: !unsent });
+  btn.onclick = async () => {
+    await flushSave?.();
+    btn.disabled = true;
+    try { const r = await withAuth((t) => submitBatch(t)); btn.textContent = `${r.count}개 제출했어요`; } catch { btn.textContent = '제출하지 못했어요'; }
+    setTimeout(refreshSync, 800);
+  };
+  box.append(btn);
+}
+let flushSave = null; // 지금 열린 글씨에 저장 안 된 변경이 있으면 바로 저장
 
 // ---------- 채점 기준표 ----------
 // 교사 표본에서 뽑은 기준을 펼쳐 두고 본다. 줄을 누르면 그 문제와 대표 점수가 채점 칸에 바로 들어간다.
@@ -286,6 +320,7 @@ function stop() {
 
 // ---------- 한 글씨 보기·채점 ----------
 function open(id) {
+  flushSave?.();
   const r = rows.find((x) => x.id === id); if (!r) return;
   current = id; stop();
   renderList();
@@ -426,24 +461,41 @@ function open(id) {
   };
   showReveal();
 
-  saveBtn.onclick = async () => {
-    const v = Number(scoreIn.value);
-    if (scoreIn.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
+  // 저장: 입력을 바꾸면 1초 뒤 자동 저장(엔진 점수는 아직 안 보임). '저장하고 엔진 보기'나 다음 글씨로 넘어가면 바로 저장
+  // 다시 고치면 batch_id를 비워 '반영 안 됨'으로 돌린다(다음 제출에 들어감)
+  const validScore = () => { const v = Number(scoreIn.value); return scoreIn.value !== '' && Number.isInteger(v) && v >= 0 && v <= 100 ? v : null; };
+  const buildPatch = (v) => {
     const picked = checks.filter((c) => c.checked).map((c) => c.value);
-    const patch = { dev_score: v, dev_issues: none.checked ? [] : (picked.length ? picked : null), dev_note: note.value.trim() || null,
+    return { dev_score: v, dev_issues: none.checked ? [] : (picked.length ? picked : null), dev_note: note.value.trim() || null,
       dev_feedback: fbSel.value || null, dev_feedback_text: fbText.value.trim() || null,
-      dev_labeled_at: new Date().toISOString(), dev_by: session.uid };
-    saveBtn.disabled = true;
-    try {
-      const [upd] = await withAuth((t) => updateAttempt(t, r.id, patch));
-      Object.assign(r, upd || patch);
-      msg.textContent = '저장했어요.'; saveBtn.textContent = '고쳐 저장';
-      renderList(); showReveal(); nextBtn.focus();
-    } catch { msg.textContent = '저장하지 못했어요. 인터넷을 확인하고 다시 눌러 주세요.'; }
-    finally { saveBtn.disabled = false; }
+      dev_labeled_at: new Date().toISOString(), dev_by: session.uid, batch_id: null };
   };
+  let dirty = false, timer = null, saving = null;
+  const persist = async () => {
+    clearTimeout(timer); timer = null;
+    const v = validScore();
+    if (!dirty || v == null) return v != null;
+    dirty = false;
+    saving = withAuth((t) => updateAttempt(t, r.id, buildPatch(v)))
+      .then(([upd]) => { Object.assign(r, upd || {}); auto.textContent = `자동 저장됨 · ${fmtDate(new Date().toISOString()).split(' ').pop()}`; renderList(); refreshSync(); return true; })
+      .catch(() => { dirty = true; auto.textContent = ''; msg.textContent = '저장하지 못했어요. 인터넷을 확인해 주세요.'; return false; });
+    return saving;
+  };
+  const changed = () => { dirty = true; auto.textContent = validScore() == null ? '' : '저장 중…'; clearTimeout(timer); timer = setTimeout(persist, 1000); };
+  flushSave = persist;
+  const auto = el('span', { className: 'autosaved' }); auto.setAttribute('aria-live', 'polite');
+  saveBtn.textContent = '저장하고 엔진 보기';
+  saveBtn.after(auto);
+  saveBtn.onclick = async () => {
+    if (validScore() == null) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
+    dirty = true; saveBtn.disabled = true;
+    const ok = await persist(); saveBtn.disabled = false;
+    if (ok) { msg.textContent = ''; showReveal(); nextBtn.focus(); }
+  };
+  for (const c of [none, ...checks]) c.addEventListener('change', changed);
+  fbSel.addEventListener('change', changed); fbText.addEventListener('input', changed); note.addEventListener('input', changed);
   scoreIn.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
-  scoreIn.oninput = updateHint;
+  scoreIn.oninput = () => { updateHint(); changed(); };
   updateHint(); showSay();
   // 기준표·피드백 목록에서 바로 채우기
   activeForm = {
@@ -452,9 +504,9 @@ function open(id) {
       none.checked = code === 'NONE';
       checks.forEach((c) => { c.checked = c.value === code; });
       if (rb.typical != null) scoreIn.value = String(rb.typical);
-      updateHint(); scoreIn.focus(); scoreIn.select();
+      updateHint(); changed(); scoreIn.focus(); scoreIn.select();
     },
-    pickFeedback(id) { fbSel.value = id; showSay(); fbSel.focus(); },
+    pickFeedback(id) { fbSel.value = id; showSay(); changed(); fbSel.focus(); },
     refresh() { updateHint(); showSay(); },
   };
   nextBtn.onclick = () => {

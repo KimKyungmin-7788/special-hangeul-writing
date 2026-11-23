@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/engine.test.js",
-    "features": "node tools/export-features.mjs"
+    "features": "node tools/export-features.mjs",
+    "rubric-stats": "node tools/rubric-stats.mjs"
   }
 }

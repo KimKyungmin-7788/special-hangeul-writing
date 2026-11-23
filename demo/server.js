@@ -48,8 +48,12 @@ export const auth = {
 };
 export const isDev = (token) => call('/rest/v1/rpc/hw_is_dev', { token, body: {} });
 // 목록과 전체 개수(Content-Range)
-export async function listAttempts(token, query) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/hw_attempts?${query}`, {
+export const listAttempts = (token, query) => listTable(token, 'hw_attempts', query);
+export const listBatches = (token, query) => listTable(token, 'hw_batches', query);
+// 제출하기: 채점했지만 아직 안 낸 글씨를 묶음으로(자동 처리가 매일 엔진 표본에 반영)
+export const submitBatch = (token) => call('/rest/v1/rpc/hw_submit_batch', { token, body: {} });
+async function listTable(token, table, query) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
     headers: { apikey: KEY, Authorization: `Bearer ${token}`, Prefer: 'count=exact' } });
   if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
   const total = Number((res.headers.get('content-range') || '').split('/')[1]) || 0;
