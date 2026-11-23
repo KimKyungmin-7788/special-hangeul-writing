@@ -4,7 +4,11 @@
 import { getTemplate, explainScore } from './engine.js';
 
 const nth = (i) => `${i + 1}번째 획`;
-const KOR_COUNT = { 2: '두', 3: '세', 4: '네', 5: '다섯' };
+// 조사: 소리 내어 읽을 이름(기역·아·가)의 받침으로 고른다. 낱자 기호(ㄱ)는 화면 글이라 '은(는)'처럼 둘 다 쓴다
+const hasBatchim = (w) => { const c = w.charCodeAt(w.length - 1) - 0xAC00; return c >= 0 && c < 11172 && c % 28 !== 0; };
+const eul = (w) => w + (hasBatchim(w) ? '을' : '를');
+const eun = (w) => w + (hasBatchim(w) ? '은' : '는');
+const KOR_COUNT = { 1: '한', 2: '두', 3: '세', 4: '네', 5: '다섯', 6: '여섯' };
 
 function directionHint(stroke) {
   if (stroke.closed) return '위에서 시작해 왼쪽으로 돌려요';
@@ -121,10 +125,10 @@ export function speechKo(result) {
   if (!it) return result.issues.some((i) => i.code === 'EMPTY') ? '칸 안에 글자를 써 봐요.'
     : result.score < SPEAK_BELOW ? '안내선을 보고 다시 써 봐요.' : null;
   switch (it.code) {
-    case 'WRONG_CHAR': return `다른 글자처럼 보여요. ${name}을 다시 써 봐요.`;
+    case 'WRONG_CHAR': return `다른 글자처럼 보여요. ${eul(name)} 다시 써 봐요.`;
     case 'STROKES_JOINED': return '이어 쓰지 말고, 획을 나눠서 써요.';
     case 'STROKE_SPLIT': return '끊지 말고 이어서 쓰세요.';
-    case 'ALT_FORM': return `${name}은 ${KOR_COUNT[n] || n} 획으로 써요.`;
+    case 'ALT_FORM': return `${eun(name)} ${KOR_COUNT[n] || n} 획으로 써요.`;
     case 'MISSING_STROKE': return '빠진 획이 있어요.';
     case 'EXTRA_STROKE': return '획을 더 그었어요.';
     case 'WRONG_ORDER': return '획순이 달라요. 시범을 보고 따라 써요.';

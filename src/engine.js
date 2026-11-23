@@ -89,7 +89,39 @@ for (const [group, defs] of Object.entries(GROUPS)) for (const [ch, def] of Obje
   };
 }
 
-/** @param {'consonant'|'vowel'} [group] 생략하면 전체 */
+// ---------- 받침 없는 글자(가~하): 자음 + ㅏ ----------
+// 자음은 칸의 왼쪽, ㅏ는 오른쪽에 둔다. 각 낱자 획 데이터의 테두리 상자를 그 자리로 옮겨 만든다.
+// 획순은 자음을 다 쓴 뒤 ㅏ. ⚠ 실제 글자에서 자음 꼴(예: '가'의 ㄱ 세로가 비스듬함)은 교사 검수 후 다듬는다.
+const SYLLABLE_ROW = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+const CHOSEONG = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const CONS_BOX = { x0: 0.1, y0: 0.2, x1: 0.56, y1: 0.8 };
+const VOWEL_BOX = { x0: 0.64, y0: 0.1, x1: 0.88, y1: 0.9 };
+function boxOf(strokes) {
+  const pts = strokes.flatMap((s) => [...s.points, ...s.variants.flat()]);
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+function placeStrokes(strokes, to, from = boxOf(strokes)) {
+  const sx = (to.x1 - to.x0) / ((from.x1 - from.x0) || 1), sy = (to.y1 - to.y0) / ((from.y1 - from.y0) || 1);
+  // 가는 획(ㅣ처럼 폭이 거의 없는 것)은 늘리지 않고 가운데에 둔다
+  const mx = from.x1 - from.x0 < 0.05 ? null : sx, my = from.y1 - from.y0 < 0.05 ? null : sy;
+  const f = (p) => ({ x: mx == null ? (to.x0 + to.x1) / 2 : to.x0 + (p.x - from.x0) * mx, y: my == null ? (to.y0 + to.y1) / 2 : to.y0 + (p.y - from.y0) * my });
+  return strokes.map((s) => ({ ...s, points: resample(s.points.map(f)), variants: s.variants.map((v) => resample(v.map(f))) }));
+}
+for (const c of SYLLABLE_ROW) {
+  const cons = templates[c], vow = templates['ㅏ'];
+  const ch = String.fromCharCode(0xAC00 + CHOSEONG.indexOf(c) * 21 * 28); // 초성 + ㅏ, 받침 없음
+  const consBox = boxOf(cons.strokes);
+  const v = placeStrokes(vow.strokes, VOWEL_BOX);
+  templates[ch] = {
+    char: ch, name: ch, group: 'syllable',
+    parts: [c, 'ㅏ'],
+    strokes: [...placeStrokes(cons.strokes, CONS_BOX, consBox), ...v],
+    altForms: cons.altForms.map((f) => [...placeStrokes(f, CONS_BOX, consBox), ...v]),
+  };
+}
+
+/** @param {'consonant'|'vowel'|'syllable'} [group] 생략하면 전체 */
 export function listChars(group) {
   return Object.keys(templates).filter((ch) => !group || templates[ch].group === group);
 }
@@ -306,6 +338,7 @@ function evaluateWith(char, tpl, userStrokes, opts) {
   let look = null;
   for (const other of Object.values(templates)) {
     if (other.char === char) continue;
+    if ((other.group === 'syllable') !== (tpl.group === 'syllable')) continue; // 낱자는 낱자끼리, 글자는 글자끼리
     // 획 수를 맞게 썼으면 획 수가 같은 글자와만 견준다(ㅏ↔ㅓ, ㅐ↔ㅔ처럼 실제로 헷갈리는 짝)
     if ((user.length === nt || result.issues.some((i) => i.code === 'ALT_FORM' || i.code === 'STROKE_SPLIT'))
       && other.strokes.length !== user.length) continue;

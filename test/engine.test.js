@@ -13,7 +13,8 @@ const codes = (r) => r.issues.map((i) => i.code);
 test('자음 14자, 모음 21자가 모두 있다', () => {
   assert.equal(listChars('consonant').length, 14);
   assert.equal(listChars('vowel').length, 21);
-  assert.equal(listChars().length, 35);
+  assert.equal(listChars('syllable').join(''), '가나다라마바사아자차카타파하');
+  assert.equal(listChars().length, 49);
 });
 
 test('모음 획은 가로는 왼→오, 세로는 위→아래', async () => {
@@ -368,4 +369,16 @@ test('운동 지원: 운동 조절 문제(나눠 씀·넘어감)는 너그럽게
   for (const c of ['WRONG_CHAR', 'WRONG_ORDER', 'WRONG_DIRECTION', 'MISSING_STROKE']) assert.equal(ISSUE_KIND[c], 'error');
   // 바르게 쓴 글자는 운동 지원과 상관없이 높다
   for (const ch of listChars()) assert.ok(evaluate(ch, perfect(ch), { motorSupport: true }).score >= 90, ch);
+});
+
+test('가나다: 자음을 먼저 다 쓰고 ㅏ, ㅏ를 먼저 쓰면 획순, 자음만 쓰면 획 빠짐', () => {
+  const ga = getTemplate('가');
+  assert.deepEqual(ga.parts, ['ㄱ', 'ㅏ']);
+  assert.equal(ga.strokes.length, 3);
+  const p = perfect('가');
+  assert.ok(evaluate('가', p).score >= 90);
+  assert.ok(codes(evaluate('가', [p[1], p[2], p[0]])).includes('WRONG_ORDER'));
+  assert.ok(codes(evaluate('가', [p[0]])).includes('MISSING_STROKE'));
+  // 낱자 ㄱ을 '가'로 판정하지 않는다(낱자는 낱자끼리 견줌)
+  assert.ok(!codes(evaluate('ㄱ', perfect('ㄱ'))).includes('WRONG_CHAR'));
 });

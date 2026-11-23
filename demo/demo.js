@@ -9,7 +9,7 @@ const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-const GROUP_NAME = { consonant: '자음', vowel: '모음' };
+const GROUP_NAME = { consonant: '자음', vowel: '모음', syllable: '가나다' };
 let group = 'consonant';
 let chars = listChars(group);
 const best = {}; // 글자별 최고 점수(이 화면에서만, 저장 안 함)
