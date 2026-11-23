@@ -78,24 +78,25 @@
   .pad-resize:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .pad-size-label { position: absolute; right: 32px; bottom: -12px; font-size: 12px; color: var(--muted); background: var(--panel); padding: 2px 6px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .pad-wrap.resizing .pad-size-label { opacity: 1; }
-  /* 자동 제출 두근두근: 1초마다 쓰기 칸이 두 번 뛰며(쿵-쿵) 반짝이는 빛이 지나가고 파란 빛이 번진다. 마지막 박동이 가장 크다 */
+  /* 자동 제출 카운트: 1초마다 쓰기 칸이 한 번 꿀렁이며 반짝이는 빛이 지나가고 파란 빛이 번진다. 마지막이 가장 크다 */
   .pad-wrap::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius); pointer-events: none; opacity: 0;
     background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.85) 46%, rgba(255,255,255,.2) 54%, transparent 64%); background-size: 260% 100%; background-position: 130% 0; }
   .pad-wrap.beat canvas { animation: heartbeat .62s cubic-bezier(.3,.6,.3,1); }
   .pad-wrap.beat::after { animation: gloss .62s ease-out; }
   .pad-wrap.beat.last canvas { animation-name: heartbeat-last; }
+  /* 한 번 꿀렁: 살짝 납작하게 커졌다가 탄력 있게 돌아온다 */
   @keyframes heartbeat {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59,91,219,0); }
-    14% { transform: scale(1.035); box-shadow: 0 0 22px 4px rgba(59,91,219,.45); }
-    28% { transform: scale(1.005); }
-    42% { transform: scale(1.022); box-shadow: 0 0 16px 3px rgba(59,91,219,.3); }
+    22% { transform: scale(1.045, 1.015); box-shadow: 0 0 22px 4px rgba(59,91,219,.45); }
+    45% { transform: scale(0.99, 1.02); }
+    70% { transform: scale(1.005, 0.997); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59,91,219,0); }
   }
   @keyframes heartbeat-last {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(47,158,68,0); }
-    14% { transform: scale(1.06); box-shadow: 0 0 34px 8px rgba(47,158,68,.5); }
-    28% { transform: scale(1.01); }
-    42% { transform: scale(1.04); box-shadow: 0 0 26px 6px rgba(47,158,68,.35); }
+    22% { transform: scale(1.07, 1.025); box-shadow: 0 0 34px 8px rgba(47,158,68,.5); }
+    45% { transform: scale(0.985, 1.03); }
+    70% { transform: scale(1.008, 0.995); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(47,158,68,0); }
   }
   @keyframes gloss { 0% { opacity: 0; background-position: 130% 0; } 15% { opacity: 1; } 100% { opacity: 0; background-position: -30% 0; } }
