@@ -1,11 +1,8 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
 import { feedbackKo, speechKo, explainKo } from '../src/feedback-ko.js';
-import { LABEL_BY_CODE, EXCLUDE, labelCodes, engineToLabels, migrateLabels } from '../src/labels.js';
-import { createLabelPicker } from './label-picker.js';
 import { ENGINE_VERSION } from '../src/engine.js';
-import { submitAttempt, teacherLabel, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
-import { copyText } from './copy.js';
+import { submitAttempt, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
@@ -620,32 +617,34 @@ function whyLine(r) {
   return box;
 }
 
-function showResult(r, attempt) {
+// 채점 결과: 점수·등급·별과 한마디만. 선생님에게는 '자세히'(부분 점수·왜 이 점수)를 접어서 둔다
+function showResult(r) {
   const el = $('result');
   el.replaceChildren();
   const head = document.createElement('div'); head.className = 'score';
-  head.innerHTML = `<b>${r.score}</b>점 <span class="grade" style="background:var(${gradeColor(r.grade)})">${r.grade}</span> <span>${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}</span>`;
-  el.append(head);
-  for (const [k, label] of Object.entries(PART_LABEL)) {
-    const row = document.createElement('div'); row.className = 'bar';
-    const pct = Math.round(r.parts[k] * 100);
-    row.innerHTML = `<span>${label}</span><i><span style="width:${pct}%"></span></i><span>${pct}</span>`;
-    el.append(row);
-  }
-  // 왜 이 점수인지 키워드로(교사·둘러보기만. 학생에게는 피드백 문장만 보인다)
-  if (!(writer && !isTeacher(writer))) el.append(whyLine(r));
-  const ul = document.createElement('ul');
-  for (const m of feedbackKo(r)) { const li = document.createElement('li'); li.textContent = m; ul.append(li); }
-  el.append(ul);
+  head.innerHTML = `<b>${r.score}</b><small>점</small> <span class="grade" style="background:var(${gradeColor(r.grade)})">${r.grade}</span> <span class="stars" aria-label="별 ${r.stars}개">${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}</span>`;
+  const msg = document.createElement('div'); msg.className = 'say';
+  const txt = document.createElement('span'); txt.textContent = feedbackKo(r).join(' ');
+  msg.append(txt);
   const line = speechKo(r);
   if (line && voice.available()) {
-    const say = document.createElement('div'); say.className = 'say';
-    const txt = document.createElement('span'); txt.textContent = `🔊 ${line}`;
-    const again = document.createElement('button'); again.type = 'button'; again.textContent = '다시 듣기';
+    const again = document.createElement('button'); again.type = 'button'; again.textContent = '🔊 다시 듣기';
     again.onclick = () => voice.say(line);
-    say.append(txt, again); el.append(say);
+    msg.append(again);
   }
-  if (attempt && !(writer && !isTeacher(writer))) el.append(calibForm(r, attempt)); // 학생에게는 표본 칸을 보이지 않는다
+  el.append(head, msg);
+  if (writer && isTeacher(writer)) {
+    const det = document.createElement('details'); det.className = 'more';
+    const sum = document.createElement('summary'); sum.textContent = '자세히'; det.append(sum);
+    for (const [k, label] of Object.entries(PART_LABEL)) {
+      const row = document.createElement('div'); row.className = 'bar';
+      const pct = Math.round(r.parts[k] * 100);
+      row.innerHTML = `<span>${label}</span><i><span style="width:${pct}%"></span></i><span>${pct}</span>`;
+      det.append(row);
+    }
+    det.append(whyLine(r));
+    el.append(det);
+  }
   renderGrid();
 }
 
@@ -684,10 +683,9 @@ window.addEventListener('online', flushOutbox);
 function renderWho() {
   $('whoName').textContent = writer || '둘러보기';
   $('whoSync').textContent = !writer ? '(저장 안 함)' : outbox.length ? `· 보내기 대기 ${outbox.length}개` : '';
-  $('samples').hidden = !!writer && !isTeacher(writer); // 학생에게는 표본 표를 보이지 않는다
 }
 // 쓰는 사람이 바뀌면 이전 사람의 결과·표본 칸을 지운다
-function renderResultEmpty() { $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>'; }
+function renderResultEmpty() { $('result').replaceChildren(); }
 
 // 고르기 화면
 const gate = (() => {
@@ -745,151 +743,17 @@ const gate = (() => {
   return { open(canClose = false) { $('gClose').hidden = !canClose; $('gate').hidden = false; update(); $('gRole').querySelector('button').focus(); } };
 })();
 $('whoChange').onclick = () => gate.open(true);
+// ⚙ 설정 서랍: 바깥을 누르거나 Esc로 닫는다
+const setPanel = $('settings'), setBtn = $('setBtn');
+const setOpen = (on) => { setPanel.hidden = !on; setBtn.setAttribute('aria-expanded', String(on)); };
+setBtn.onclick = (e) => { e.stopPropagation(); setOpen(setPanel.hidden); };
+document.addEventListener('pointerdown', (e) => { if (!setPanel.hidden && !setPanel.contains(e.target) && e.target !== setBtn) setOpen(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !setPanel.hidden) { setOpen(false); setBtn.focus(); } });
+$('setWho').onclick = () => { setOpen(false); gate.open(true); };
 $('brand').onclick = () => gate.open(true);
 
-// ---------- 교사 점수 표본 모으기 (채점 보정용) ----------
-// 글씨 좌표와 선생님 점수만 저장한다. 학생 이름 같은 개인정보는 받지 않는다.
-// 저장 위치는 이 브라우저(localStorage)뿐이며, '내려받기'로 파일을 만들어 test/samples/에 넣는다.
-const SAMPLE_KEY = 'hw-calibration-samples';
-let samples = [];
-try { samples = JSON.parse(localStorage.getItem(SAMPLE_KEY) || '[]'); } catch { samples = []; }
-const persist = () => { try { localStorage.setItem(SAMPLE_KEY, JSON.stringify(samples)); } catch {} };
+// 표본 작성(교사·개발자 점수와 평가 항목)은 글씨 채점실(/dev)에서 한다. 연습 화면은 쓰기에만 집중한다.
 const round3 = (v) => Math.round(v * 1000) / 1000;
-const toPoints = (s) => s.map((st) => st.map(([x, y]) => ({ x, y })));
-const TOLERANCE = 8; // 엔진과 선생님 점수 차이 허용 범위
-
-function calibForm(r, attempt) {
-  const box = document.createElement('div'); box.className = 'calib';
-  box.innerHTML = `
-    <label for="teacherScore">선생님이 본 점수</label>
-    <div class="calib-row">
-      <input id="teacherScore" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0~100">
-      <button class="btn" id="saveSample">표본 저장</button>
-    </div>
-    <fieldset class="calib-issues">
-      <legend>선생님 눈에 보이는 문제</legend>
-      <p class="hint">엔진 결과와 상관없이 보이는 대로 고르세요. 안 고르면 '표시 안 함'으로 저장돼요.</p>
-      <div class="label-box"></div>
-    </fieldset>
-    <p class="calib-msg" aria-live="polite">엔진 ${r.score}점과 다르게 느껴지면 선생님 점수를 넣어 저장하세요.</p>`;
-  const input = box.querySelector('input'), msg = box.querySelector('.calib-msg');
-  // 평가 항목(src/labels.js): 채점실과 같은 11개 + 제외, 넘어감·안 닿음·획 모양·크기는 누를 때마다 살짝/뚜렷/해제
-  const picker = createLabelPicker(box.querySelector('.label-box'));
-  box.querySelector('#saveSample').onclick = () => {
-    const v = Number(input.value);
-    if (input.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; input.focus(); return; }
-    const { labels } = picker.get();
-    if (labels && labels[0] === EXCLUDE.code) { msg.textContent = '채점 제외로 고른 글씨는 표본으로 저장하지 않아요.'; return; }
-    samples.push({
-      char: attempt.char, teacherScore: v, device: attempt.device, engineScoreAtSave: r.score,
-      // 교사가 고른 평가 항목. []는 '문제 없음', null은 표시하지 않은 것(예전 표본도 null)
-      teacherIssues: labels,
-      engineIssuesAtSave: r.issues.map((i) => i.code),
-      strokes: attempt.strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
-      savedAt: new Date().toISOString(),
-    });
-    persist(); renderSamples();
-    msg.textContent = `저장했어요. (선생님 ${v}점 · 엔진 ${r.score}점) 모은 표본 ${samples.length}개`;
-    // 교사로 접속했으면 서버의 같은 글씨에도 표본 점수를 붙여 개발자가 볼 수 있게 한다
-    if (writer && isTeacher(writer) && attempt.serverId) {
-      attempt.serverId
-        .then((id) => id && teacherLabel({ id, writer, score: v, issues: labels }))
-        .then((ok) => { if (ok) msg.textContent += ' · 서버에도 저장'; })
-        .catch(() => { msg.textContent += ' · 서버 저장 실패(인터넷 확인)'; });
-    }
-    // 같은 글씨를 두 번 저장하지 않도록 비운다
-    input.value = ''; picker.set(null);
-  };
-  return box;
-}
-
-function renderSamples() {
-  const el = $('samples');
-  el.replaceChildren();
-  const h = document.createElement('h2'); h.textContent = `모은 채점 표본 ${samples.length}개`; el.append(h);
-  if (!samples.length) {
-    const p = document.createElement('p'); p.className = 'empty';
-    p.textContent = '채점한 뒤 오른쪽에 선생님 점수를 넣고 저장하면 여기에 쌓입니다. 20개쯤 모이면 엔진 점수를 다시 맞출 수 있어요.';
-    el.append(p); return;
-  }
-  const rows = samples.map((s, i) => {
-    const res = evaluate(s.char, toPoints(s.strokes), { device: s.device });
-    return { i, s, now: res.score, diff: res.score - s.teacherScore, codes: engineToLabels(res.issues) };
-  });
-  const mae = rows.reduce((a, r) => a + Math.abs(r.diff), 0) / rows.length;
-  const off = rows.filter((r) => Math.abs(r.diff) > TOLERANCE).length;
-  const sum = document.createElement('p'); sum.className = 'calib-sum';
-  sum.textContent = `평균 차이 ${mae.toFixed(1)}점 · ±${TOLERANCE}점을 벗어난 표본 ${off}개`;
-  const agree = issueAgreement(rows);
-  if (agree) sum.textContent += ` · 문제 표시 ${agree.labeled}개 중 선생님이 고른 문제를 엔진이 찾은 비율 ${agree.found}/${agree.picked}, 엔진만 짚은 문제 ${agree.extra}개`;
-  el.append(sum);
-
-  const table = document.createElement('table');
-  table.innerHTML = '<thead><tr><th>글자</th><th>선생님</th><th>엔진(지금)</th><th>차이</th><th>기기</th><th>문제 (선생님 기준)</th><th></th></tr></thead>';
-  const tb = document.createElement('tbody');
-  for (const r of [...rows].reverse()) {
-    const tr = document.createElement('tr');
-    if (Math.abs(r.diff) > TOLERANCE) tr.className = 'off';
-    tr.innerHTML = `<td>${r.s.char}</td><td>${r.s.teacherScore}</td><td>${r.now}</td><td>${r.diff > 0 ? '+' : ''}${r.diff}</td><td>${{ finger: '손가락', pen: '펜', board: '전자칠판' }[r.s.device] || r.s.device}</td><td class="iss">${issueCell(r)}</td>`;
-    const td = document.createElement('td');
-    const del = document.createElement('button'); del.className = 'btn small'; del.textContent = '삭제';
-    del.setAttribute('aria-label', `${r.s.char} 표본 삭제`);
-    del.onclick = () => { samples.splice(r.i, 1); persist(); renderSamples(); };
-    td.append(del); tr.append(td); tb.append(tr);
-  }
-  table.append(tb); el.append(table);
-
-  const bar = document.createElement('div'); bar.className = 'toolbar';
-  const dl = document.createElement('button'); dl.className = 'btn primary'; dl.textContent = '표본 내려받기 (.json)';
-  dl.onclick = downloadSamples;
-  // 아이패드: 복사하면 같은 Apple ID 맥북에서 바로 붙여 넣을 수 있다(유니버설 클립보드)
-  const cp = document.createElement('button'); cp.className = 'btn'; cp.textContent = '표본 복사';
-  cp.onclick = async () => { if (await copyText(samplesFileText())) cp.textContent = '복사했어요'; setTimeout(() => { cp.textContent = '표본 복사'; }, 2000); };
-  const clear = document.createElement('button'); clear.className = 'btn'; clear.textContent = '모두 지우기';
-  clear.onclick = () => { if (confirm(`표본 ${samples.length}개를 모두 지울까요? 되돌릴 수 없어요.`)) { samples = []; persist(); renderSamples(); } };
-  bar.append(dl, cp, clear); el.append(bar);
-  const hint = document.createElement('p'); hint.className = 'empty';
-  hint.textContent = '내려받은 파일을 프로젝트의 test/samples/ 폴더에 넣으면 npm test가 엔진 점수와 선생님 점수 차이를 검사합니다.';
-  el.append(hint);
-}
-
-// 선생님이 고른 항목과 지금 엔진이 찾은 항목 비교(평가 항목 기준). 그대로: 둘 다, 빨강 '놓침': 엔진이 못 찾음, 회색 +: 엔진만
-function issueCell(r) {
-  const t = migrateLabels(r.s.teacherIssues);
-  if (t == null) return '<span class="extra">표시 안 함</span>';
-  const want = labelCodes(t), name = (c) => LABEL_BY_CODE[c]?.name || c;
-  const parts = want.map((c) => r.codes.includes(c) ? name(c) : `<span class="miss">${name(c)}(놓침)</span>`);
-  for (const c of r.codes) if (!want.includes(c)) parts.push(`<span class="extra">+${name(c)}</span>`);
-  return parts.length ? parts.join(' · ') : '문제 없음';
-}
-
-function issueAgreement(rows) {
-  const labeled = rows.filter((r) => Array.isArray(r.s.teacherIssues));
-  if (!labeled.length) return null;
-  let picked = 0, found = 0, extra = 0;
-  for (const r of labeled) {
-    const want = labelCodes(migrateLabels(r.s.teacherIssues));
-    picked += want.length;
-    found += want.filter((c) => r.codes.includes(c)).length;
-    extra += r.codes.filter((c) => !want.includes(c)).length;
-  }
-  return { labeled: labeled.length, picked, found, extra };
-}
-
-// 표본 하나를 한 줄로 써서 파일을 짧고 git 비교하기 쉽게
-function samplesFileText(d = new Date()) {
-  return `{"version":1,"exportedAt":${JSON.stringify(d.toISOString())},"samples":[\n${samples.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`;
-}
-
-function downloadSamples() {
-  const d = new Date(), pad = (n) => String(n).padStart(2, '0');
-  const name = `samples-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
-  const body = samplesFileText(d);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
-  a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
 
 // ---------- 글자 목록 ----------
 function renderGrid() {
@@ -922,7 +786,7 @@ function select(ch) {
   cancelAuto(); cancelAdvance();
   if (viewing) { viewing = null; renderCarousel(); }
   current = ch; strokes = []; toast(''); if (guideFaded) setGuideFaded(false, false);
-  $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
+  $('result').replaceChildren();
   renderGrid(); redraw(); resetModel();
 }
 
@@ -1009,7 +873,6 @@ try { const cm = Number(localStorage.getItem(PAD_KEY)); if (cm) padSize = padWan
 
 renderGrid();
 renderCarousel();
-renderSamples();
 renderWho();
 if (!writer) gate.open(); else flushOutbox();
 syncModel();

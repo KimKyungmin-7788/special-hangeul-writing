@@ -309,6 +309,43 @@
   .toast:empty { display: none; }
   /* 자동 제출 진행 표시는 쓰지 않는다(칸이 꿀렁이고 쿵 소리만) */
   .auto-bar { display: none !important; }
+  /* ================= 쓰기에 집중 (2026-11-23) =================
+     연습 화면은 한 줄로: 글자 고르기 → 쓰는 종이·시범 → 버튼 네 개 → 점수 한 줄 → 쓴 글자. 설정은 ⚙ 서랍, 표본 작성은 채점실(/dev) */
+  main, main.with-model { grid-template-columns: minmax(0, 1fr); }
+  main > .panel:first-child { grid-column: 1 / -1; }
+  .grid, main.with-model .grid { grid-template-columns: repeat(auto-fill, minmax(48px, 60px)); }
+  @media (max-width: 860px) { .grid, main.with-model .grid { grid-template-columns: repeat(auto-fill, minmax(44px, 52px)); } }
+  .grid .cell { font-size: 26px; }
+  .main-tools { margin-top: 6px; }
+  .main-tools #doneBtn { font-size: 24px; padding: 10px 26px; }
+  /* 점수 한 줄 */
+  .result:empty { display: none; }
+  .result { width: 100%; max-width: 760px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 16px; border: 2px dashed rgba(200,67,58,.55); border-radius: 12px; }
+  .result .score { align-items: center; }
+  .result .score small { font-family: var(--hand); font-size: 22px; color: var(--red-pencil); margin-left: -4px; }
+  .result .stars { font-size: 24px; color: #e3a21a; letter-spacing: 1px; }
+  .result .say { flex: 1 1 260px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; border: 0; padding: 0; font-size: 23px; color: var(--ink); }
+  .result .say button { font-size: 16px; min-height: 34px; padding: 3px 10px; color: var(--accent); border-color: var(--accent); cursor: pointer; }
+  .result .more { flex: 1 0 100%; font-size: 13px; }
+  .result .more summary { cursor: pointer; color: var(--muted); font-family: var(--hand); font-size: 18px; }
+  .result .more .bar { max-width: 420px; }
+  /* 머리줄: 쓰는 사람 이름표와 ⚙ 설정 서랍 */
+  .app-head { position: relative; }
+  button.who { font: inherit; background: transparent; border: 1.5px dashed var(--line); border-radius: 999px; padding: 3px 12px; cursor: pointer; color: var(--muted); }
+  button.who:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .settings { position: absolute; z-index: 50; top: calc(100% + 6px); right: 16px; width: min(360px, calc(100vw - 32px)); background: #fffdf8; border: 2px solid var(--ink); border-radius: 12px;
+    box-shadow: 0 14px 30px rgba(40,30,10,.25); padding: 14px 18px; display: grid; gap: 4px; font-size: 15px; }
+  .settings[hidden] { display: none; }
+  .settings h3 { font-family: var(--hand); font-size: 22px; margin: 0 0 4px; }
+  .settings .set-grp { font-size: 12px; color: var(--muted); margin-top: 8px; letter-spacing: .04em; }
+  .settings label.toggle { justify-content: flex-start; min-height: 34px; }
+  .settings select { font-size: 17px; min-height: 36px; padding: 2px 8px; }
+  .settings #autoSec { width: 58px; font: inherit; padding: 4px; }
+  .settings hr { width: 100%; border: 0; border-top: 1px dashed var(--line); margin: 8px 0 4px; }
+  @media (max-width: 480px) { .app-head { flex-wrap: nowrap; gap: 6px; } .brand { font-size: 21px; white-space: nowrap; } button.who { padding: 2px 8px; white-space: nowrap; } .head-btn { white-space: nowrap; padding: 4px 8px; } }
+  .box-cap, .box-cap .tag { white-space: nowrap; }
+  .set-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+  .set-links button, .set-links a { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -345,10 +382,30 @@
 </div>
 <header class="app-head">
   <button class="brand" id="brand" type="button" aria-label="처음 화면으로"><img src="/favicon.svg" alt="">한글 쓰기 연습</button>
-  <span class="who">쓰는 사람 <b id="whoName">-</b> <span id="whoSync"></span></span>
+  <button class="who" type="button" id="whoChange" aria-label="쓰는 사람 바꾸기"><b id="whoName">-</b> <span id="whoSync"></span> ▾</button>
   <span class="head-sp"></span>
-  <button class="head-btn" type="button" id="whoChange">처음 화면</button>
-  <a class="head-btn" href="/dev">개발자</a>
+  <button class="head-btn" type="button" id="setBtn" aria-expanded="false" aria-controls="settings">⚙ 설정</button>
+  <div class="settings" id="settings" role="dialog" aria-label="설정" hidden>
+    <h3>⚙ 설정</h3>
+    <div class="set-grp">쓰는 도구</div>
+    <label class="toggle">기기
+      <select id="device" aria-label="입력 기기">
+        <option value="finger">손가락 (너그럽게)</option>
+        <option value="pen">펜 (정확하게)</option>
+        <option value="board">전자칠판</option>
+      </select></label>
+    <label class="toggle"><input type="checkbox" id="penOnly"> 펜슬만 받기 (손바닥 터치 무시)</label>
+    <div class="set-grp">도와주기</div>
+    <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
+    <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
+    <label class="toggle"><input type="checkbox" id="autoNext" checked> S를 받으면 안내 지우고 다음 글자로</label>
+    <label class="toggle">자동 제출 <input type="number" id="autoSec" min="0" max="10" step="0.5" value="2" inputmode="decimal"> 초 (0이면 끔)</label>
+    <div class="set-grp">소리</div>
+    <label class="toggle"><input type="checkbox" id="voiceOn" checked> 소리로 알려 주기</label>
+    <label class="toggle"><input type="checkbox" id="sfxOn" checked> 효과음</label>
+    <hr>
+    <div class="set-links"><button type="button" id="setWho">👤 쓰는 사람 바꾸기</button><a href="/dev">글씨 채점실 (개발자)</a></div>
+  </div>
 </header>
 <main>
   <section class="panel">
@@ -362,12 +419,6 @@
   </section>
 
   <section class="panel stage">
-    <div class="toolbar">
-      <button class="btn" id="animBtn">▶ 획순 보기</button>
-      <button class="btn" id="clearBtn">↺ 다시 쓰기</button>
-      <button class="btn primary" id="doneBtn">다 썼어요</button>
-      <button class="btn" id="modelBtn" type="button" aria-pressed="true" aria-controls="modelWrap">획순 시범</button>
-    </div>
     <div class="pad-row" id="padRow">
     <div class="pad-wrap" id="padWrap">
       <div class="box-cap me">✏️ 여기에 써요</div>
@@ -391,30 +442,20 @@
       </div>
     </div>
     </div>
+    <div class="toolbar main-tools">
+      <button class="btn" id="clearBtn">↺ 다시 쓰기</button>
+      <button class="btn" id="animBtn">▶ 획순 보기</button>
+      <button class="btn" id="modelBtn" type="button" aria-pressed="true" aria-controls="modelWrap">시범</button>
+      <button class="btn primary" id="doneBtn">다 썼어요</button>
+    </div>
     <div class="toast" id="toast" aria-live="polite"></div>
+    <div class="result" id="result" aria-live="polite"></div>
     <div class="carousel-wrap">
       <div class="carousel" id="carousel" role="list" aria-label="쓴 글자 모음"></div>
       <p class="empty" id="carouselEmpty">다 쓴 글자가 여기에 차례로 쌓여요. 눌러서 다시 볼 수 있어요.</p>
     </div>
-    <div class="toolbar">
-      <select id="device" aria-label="입력 기기">
-        <option value="finger">손가락 (너그럽게)</option>
-        <option value="pen">펜 (정확하게)</option>
-        <option value="board">전자칠판</option>
-      </select>
-      <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
-      <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
-      <label class="toggle"><input type="checkbox" id="penOnly"> 펜슬만 받기 (손바닥 터치 무시)</label>
-      <label class="toggle"><input type="checkbox" id="voiceOn" checked> 소리로 알려 주기</label>
-      <label class="toggle"><input type="checkbox" id="sfxOn" checked> 효과음</label>
-      <label class="toggle"><input type="checkbox" id="autoNext" checked> S를 받으면 안내 지우고 다음 글자로</label>
-      <label class="toggle">자동 제출 <input type="number" id="autoSec" min="0" max="10" step="0.5" value="2" inputmode="decimal"> 초 (0이면 끔)</label>
-    </div>
   </section>
 
-  <section class="panel" id="result"><p class="empty">글자를 쓰고 '다 썼어요'를 누르세요.</p></section>
-
-  <section class="panel samples" id="samples" aria-label="채점 표본"></section>
 </main>
 <footer class="app-foot">
   <span>한글 쓰기 연습 · 운영 김경민</span>
