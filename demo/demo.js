@@ -926,6 +926,7 @@ window.addEventListener('resize', () => { setPadSize(padWanted, false); });
 
 // ---------- 쓰기 칸 크기 조절 ----------
 // 획은 칸 기준 0~1 좌표로 저장되므로 크기를 바꿔도 그대로 맞춰 다시 그려지고 채점도 같다.
+const PAD_GAP = 28; // 쓰기 칸과 시범 칸 사이(크기 조절 손잡이가 끼지 않게). index.html의 .pad-row gap과 같아야 한다
 const PAD_MIN = 200, PAD_STEP = 20, PAD_KEY = 'hw-pref-padSize';
 const padWrap = $('padWrap'), padHandle = $('padResize'), padLabel = $('padSizeLabel');
 let padSize = 420;
@@ -933,8 +934,8 @@ let padWanted = 420; // 선생님이 고른 크기. 모델링을 켜서 줄어�
 const padMax = () => {
   const stage = padWrap.closest('.stage'), cs = getComputedStyle(stage);
   const inner = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  // 모델링을 켜면 쓰기 칸과 모델링 칸이 사이 12px를 두고 나란히 들어가야 한다
-  return modelOn ? (inner - 12) / 2 : inner;
+  // 모델링을 켜면 쓰기 칸과 모델링 칸이 사이 PAD_GAP을 두고 나란히 들어가야 한다
+  return modelOn ? (inner - PAD_GAP) / 2 : inner;
 };
 function setPadSize(px, save = true) {
   const max = padMax();
