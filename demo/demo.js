@@ -1,6 +1,8 @@
 // 엔진 확인용 화면. 엔진(src/)은 화면을 모르고, 이 파일이 그리기·소리·결과 표시를 맡는다.
 import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js';
-import { feedbackKo, speechKo, explainKo, ISSUE_NAMES_KO } from '../src/feedback-ko.js';
+import { feedbackKo, speechKo, explainKo } from '../src/feedback-ko.js';
+import { LABEL_BY_CODE, EXCLUDE, labelCodes, engineToLabels, migrateLabels } from '../src/labels.js';
+import { createLabelPicker } from './label-picker.js';
 import { ENGINE_VERSION } from '../src/engine.js';
 import { submitAttempt, teacherLabel, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
 import { copyText } from './copy.js';
@@ -767,29 +769,21 @@ function calibForm(r, attempt) {
     <fieldset class="calib-issues">
       <legend>선생님 눈에 보이는 문제</legend>
       <p class="hint">엔진 결과와 상관없이 보이는 대로 고르세요. 안 고르면 '표시 안 함'으로 저장돼요.</p>
-      <div class="chips">
-        <label class="chip none"><input type="checkbox" value="NONE"><span>문제 없음</span></label>
-        ${Object.entries(ISSUE_NAMES_KO).map(([code, name]) => `<label class="chip"><input type="checkbox" value="${code}"><span>${name}</span></label>`).join('')}
-      </div>
+      <div class="label-box"></div>
     </fieldset>
     <p class="calib-msg" aria-live="polite">엔진 ${r.score}점과 다르게 느껴지면 선생님 점수를 넣어 저장하세요.</p>`;
   const input = box.querySelector('input'), msg = box.querySelector('.calib-msg');
-  const checks = [...box.querySelectorAll('.chips input')];
-  const none = checks.find((c) => c.value === 'NONE');
-  // '문제 없음'과 다른 문제는 함께 고를 수 없다
-  for (const c of checks) c.onchange = () => {
-    if (!c.checked) return;
-    if (c === none) checks.forEach((o) => { if (o !== none) o.checked = false; });
-    else none.checked = false;
-  };
+  // 평가 항목(src/labels.js): 채점실과 같은 11개 + 제외, 넘어감·안 닿음·획 모양·크기는 누를 때마다 살짝/뚜렷/해제
+  const picker = createLabelPicker(box.querySelector('.label-box'));
   box.querySelector('#saveSample').onclick = () => {
     const v = Number(input.value);
     if (input.value === '' || !Number.isInteger(v) || v < 0 || v > 100) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; input.focus(); return; }
-    const picked = checks.filter((c) => c.checked && c !== none).map((c) => c.value);
+    const { labels } = picker.get();
+    if (labels && labels[0] === EXCLUDE.code) { msg.textContent = '채점 제외로 고른 글씨는 표본으로 저장하지 않아요.'; return; }
     samples.push({
       char: attempt.char, teacherScore: v, device: attempt.device, engineScoreAtSave: r.score,
-      // 교사가 고른 문제 코드. []는 '문제 없음'을 고른 것, null은 표시하지 않은 것(예전 표본도 null)
-      teacherIssues: none.checked ? [] : (picked.length ? picked : null),
+      // 교사가 고른 평가 항목. []는 '문제 없음', null은 표시하지 않은 것(예전 표본도 null)
+      teacherIssues: labels,
       engineIssuesAtSave: r.issues.map((i) => i.code),
       strokes: attempt.strokes.map((s) => s.map((p) => [round3(p.x), round3(p.y)])),
       savedAt: new Date().toISOString(),
@@ -798,14 +792,13 @@ function calibForm(r, attempt) {
     msg.textContent = `저장했어요. (선생님 ${v}점 · 엔진 ${r.score}점) 모은 표본 ${samples.length}개`;
     // 교사로 접속했으면 서버의 같은 글씨에도 표본 점수를 붙여 개발자가 볼 수 있게 한다
     if (writer && isTeacher(writer) && attempt.serverId) {
-      const issues = none.checked ? [] : (picked.length ? picked : null);
       attempt.serverId
-        .then((id) => id && teacherLabel({ id, writer, score: v, issues }))
+        .then((id) => id && teacherLabel({ id, writer, score: v, issues: labels }))
         .then((ok) => { if (ok) msg.textContent += ' · 서버에도 저장'; })
         .catch(() => { msg.textContent += ' · 서버 저장 실패(인터넷 확인)'; });
     }
     // 같은 글씨를 두 번 저장하지 않도록 비운다
-    input.value = ''; checks.forEach((c) => { c.checked = false; });
+    input.value = ''; picker.set(null);
   };
   return box;
 }
@@ -821,7 +814,7 @@ function renderSamples() {
   }
   const rows = samples.map((s, i) => {
     const res = evaluate(s.char, toPoints(s.strokes), { device: s.device });
-    return { i, s, now: res.score, diff: res.score - s.teacherScore, codes: res.issues.map((x) => x.code) };
+    return { i, s, now: res.score, diff: res.score - s.teacherScore, codes: engineToLabels(res.issues) };
   });
   const mae = rows.reduce((a, r) => a + Math.abs(r.diff), 0) / rows.length;
   const off = rows.filter((r) => Math.abs(r.diff) > TOLERANCE).length;
@@ -860,13 +853,13 @@ function renderSamples() {
   el.append(hint);
 }
 
-// 선생님이 고른 문제와 지금 엔진이 찾은 문제 비교. 그대로: 둘 다, 빨강 '놓침': 엔진이 못 찾음, 회색 +: 엔진만
+// 선생님이 고른 항목과 지금 엔진이 찾은 항목 비교(평가 항목 기준). 그대로: 둘 다, 빨강 '놓침': 엔진이 못 찾음, 회색 +: 엔진만
 function issueCell(r) {
-  const t = r.s.teacherIssues;
+  const t = migrateLabels(r.s.teacherIssues);
   if (t == null) return '<span class="extra">표시 안 함</span>';
-  const name = (c) => ISSUE_NAMES_KO[c] || c;
-  const parts = t.map((c) => r.codes.includes(c) ? name(c) : `<span class="miss">${name(c)}(놓침)</span>`);
-  for (const c of r.codes) if (!t.includes(c) && ISSUE_NAMES_KO[c]) parts.push(`<span class="extra">+${name(c)}</span>`);
+  const want = labelCodes(t), name = (c) => LABEL_BY_CODE[c]?.name || c;
+  const parts = want.map((c) => r.codes.includes(c) ? name(c) : `<span class="miss">${name(c)}(놓침)</span>`);
+  for (const c of r.codes) if (!want.includes(c)) parts.push(`<span class="extra">+${name(c)}</span>`);
   return parts.length ? parts.join(' · ') : '문제 없음';
 }
 
@@ -875,9 +868,10 @@ function issueAgreement(rows) {
   if (!labeled.length) return null;
   let picked = 0, found = 0, extra = 0;
   for (const r of labeled) {
-    picked += r.s.teacherIssues.length;
-    found += r.s.teacherIssues.filter((c) => r.codes.includes(c)).length;
-    extra += r.codes.filter((c) => !r.s.teacherIssues.includes(c) && ISSUE_NAMES_KO[c]).length;
+    const want = labelCodes(migrateLabels(r.s.teacherIssues));
+    picked += want.length;
+    found += want.filter((c) => r.codes.includes(c)).length;
+    extra += r.codes.filter((c) => !want.includes(c)).length;
   }
   return { labeled: labeled.length, picked, found, extra };
 }

@@ -287,25 +287,29 @@ test('측정값(measures)은 모든 글자에서 같은 열을 유한한 숫자�
   }
 });
 
-// 교사가 표본에 고른 문제(teacherIssues)와 엔진이 찾은 문제를 견준다. 아직 표본이 적어 실패로 보지 않고 숫자만 알린다.
-test('교사가 고른 문제와 엔진 문제 비교 (보고만)', async (t) => {
+// 교사가 표본에 고른 평가 항목(teacherIssues, src/labels.js)과 엔진이 찾은 문제를 같은 항목으로 바꿔 견준다.
+// 아직 표본이 적어 실패로 보지 않고 숫자만 알린다.
+test('교사가 고른 항목과 엔진 항목 비교 (보고만)', async (t) => {
   const fs = await import('node:fs');
+  const { migrateLabels, labelCodes, engineToLabels } = await import('../src/labels.js');
   const dir = new URL('./samples/', import.meta.url);
   let labeled = 0, picked = 0, found = 0, extra = 0;
   const missed = {};
   for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json'))) {
     const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
     for (const s of data.samples || [data]) {
-      if (!Array.isArray(s.teacherIssues) || s.disputed) continue;
-      const got = codes(evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }));
-      labeled++; picked += s.teacherIssues.length;
-      for (const c of s.teacherIssues) if (got.includes(c)) found++; else missed[c] = (missed[c] || 0) + 1;
-      extra += got.filter((c) => !s.teacherIssues.includes(c)).length;
+      const mine = migrateLabels(s.teacherIssues);
+      if (!mine || s.disputed || mine.includes('EXCLUDE')) continue;
+      const want = labelCodes(mine);
+      const got = labelCodes(engineToLabels(evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }).issues));
+      labeled++; picked += want.length;
+      for (const c of want) if (got.includes(c)) found++; else missed[c] = (missed[c] || 0) + 1;
+      extra += got.filter((c) => !want.includes(c)).length;
     }
   }
   t.diagnostic(labeled
-    ? `문제 표시 표본 ${labeled}개: 교사가 고른 문제 ${picked}개 중 엔진이 찾음 ${found}개, 엔진만 짚음 ${extra}개, 놓친 문제 ${JSON.stringify(missed)}`
-    : '문제 표시가 있는 표본이 아직 없음');
+    ? `항목 표시 표본 ${labeled}개: 교사가 고른 항목 ${picked}개 중 엔진이 찾음 ${found}개, 엔진만 짚음 ${extra}개, 놓친 항목 ${JSON.stringify(missed)}`
+    : '항목 표시가 있는 표본이 아직 없음');
 });
 
 test('소리 피드백은 가장 중요한 문제 하나를 짧게, 문제 없고 점수 좋으면 말하지 않음', async () => {
@@ -356,7 +360,7 @@ test('채점실 표본과 엔진 차이 (보고만)', async (t) => {
   t.diagnostic(`채점실 표본 ${ss.length}개: 평균 차이 ${mae.toFixed(1)}점, 15점 넘게 어긋남 ${d.filter((v) => Math.abs(v) > 15).length}개`);
 });
 
-test('운동 지원: 운동 조절 문제(나눠 씀·넘어감)는 너그럽게, 배워야 할 오류(획순·다른 글자)는 그대로', async () => {
+test('운동 지원: 운동 조절 문제(끊어 씀·넘어감)는 너그럽게, 배워야 할 오류(획순·다른 글자)는 그대로', async () => {
   const { ISSUE_KIND } = await import('../src/engine.js');
   const g = getTemplate('ㄱ').strokes[0].points;
   const split = [jitter(g.slice(0, 16)), jitter(g.slice(15))];
@@ -381,4 +385,22 @@ test('가나다: 자음을 먼저 다 쓰고 ㅏ, ㅏ를 먼저 쓰면 획순, �
   assert.ok(codes(evaluate('가', [p[0]])).includes('MISSING_STROKE'));
   // 낱자 ㄱ을 '가'로 판정하지 않는다(낱자는 낱자끼리 견줌)
   assert.ok(!codes(evaluate('ㄱ', perfect('ㄱ'))).includes('WRONG_CHAR'));
+});
+
+// 평가 항목(src/labels.js)
+test('평가 항목: 엔진 코드 변환·예전 표시 옮기기·먼저 말할 항목', async () => {
+  const { engineToLabels, migrateLabels, migrateFeedback, primaryLabel, labelCodes, LABELS } = await import('../src/labels.js');
+  const { rubricFor } = await import('../demo/rubric.js');
+  assert.equal(LABELS.length, 11);
+  assert.deepEqual(engineToLabels([{ code: 'MISSING_STROKE' }, { code: 'ALT_FORM' }, { code: 'TOO_BIG' }]), ['STROKE_COUNT', 'SIZE']);
+  assert.deepEqual(migrateLabels(['START_POINT', 'SLANT', 'PRAISE', 'MISSING_STROKE', 'EXTRA_STROKE']), ['WRONG_DIRECTION', 'SHAPE.SLANT', 'STROKE_COUNT']);
+  assert.equal(migrateLabels(null), null);
+  assert.equal(migrateFeedback('PRAISE'), null);
+  assert.equal(migrateFeedback('LENGTH'), 'SHAPE');
+  assert.deepEqual(labelCodes(['OVERSHOOT!', 'SHAPE', 'SHAPE.SLANT']), ['OVERSHOOT', 'SHAPE']);
+  assert.equal(primaryLabel(['SIZE', 'OVERSHOOT'], null), 'OVERSHOOT');
+  assert.equal(primaryLabel(['SIZE', 'OVERSHOOT'], 'SIZE'), 'SIZE');
+  assert.equal(rubricFor(['OVERSHOOT!', 'SIZE']).name, '넘어감 · 뚜렷');
+  assert.equal(rubricFor(['OVERSHOOT']).name, '넘어감 · 살짝');
+  assert.equal(rubricFor([]).code, 'NONE');
 });

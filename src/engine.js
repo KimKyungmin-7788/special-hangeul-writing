@@ -479,7 +479,7 @@ function coverage(t, u, r) {
 }
 
 // 획 나눔 판정. joined: 학생 획 하나가 템플릿 획 여러 개를 혼자 덮음(이어 씀).
-// split: 템플릿 획 하나를 학생 획 여러 개가 나눠 덮음(나눠 씀).
+// split: 템플릿 획 하나를 학생 획 여러 개가 나눠 덮음(끊어 씀).
 function segmentation(tInk, uInk, r) {
   const FULL = 0.7;
   const cov = tInk.map((t) => uInk.map((u) => coverage(t, u, r)));

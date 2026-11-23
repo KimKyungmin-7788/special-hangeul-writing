@@ -2,7 +2,8 @@
 // 엔진 점수는 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '엔진 점수 먼저 보기'로 바꿀 수 있다.
 import { evaluate, getTemplate } from '../src/engine.js';
 import { ISSUE_NAMES_KO, explainKo, speechKo, speechCase } from '../src/feedback-ko.js';
-import { FEEDBACK_CASES, CASE_BY_ID, CASE_GROUPS } from './feedback-cases.js';
+import { LABELS, GROUPS as LABEL_GROUPS, EXCLUDE, LABEL_BY_CODE, parseLabel, labelCodes, engineToLabels, primaryLabel, migrateLabels, migrateFeedback } from '../src/labels.js';
+import { createLabelPicker } from './label-picker.js';
 import { auth, isDev, listAttempts, listBatches, submitBatch, updateAttempt, deleteAttempt } from './server.js';
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
@@ -11,6 +12,16 @@ const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const DEVICE = { finger: '손가락', pen: '펜', board: '전자칠판' };
 const issueNames = (codes) => (codes && codes.length ? codes.map((c) => ISSUE_NAMES_KO[c] || c).join(', ') : '문제 없음');
+// 평가 항목 이름(정도·세부 포함): 'OVERSHOOT!' → '넘어감(뚜렷)'
+const labelNames = (labels) => {
+  if (labels == null) return '표시 안 함';
+  if (!labels.length) return '문제 없음';
+  return labels.map((s) => { const p = parseLabel(s); const n = LABEL_BY_CODE[p.code]?.name || p.code; return p.tag ? null : n + (p.strong ? '(뚜렷)' : ''); }).filter(Boolean).join(', ');
+};
+// 학생에게 할 말(엔진 문제 코드 → 평가 항목으로 보여 줌)
+const SAY = { WRONG_CHAR: '다른 글자처럼 보여요. 시범을 보고 다시 써 봐요.', STROKE_COUNT: '빠진 획(더 그은 획)이 있어요.', WRONG_ORDER: '획순이 달라요. 시범을 보고 따라 써요.',
+  WRONG_DIRECTION: '반대로 그었어요. 시작점에서 시작해요.', STROKE_SPLIT: '끊지 말고 이어서 쓰세요.', STROKES_JOINED: '이어 쓰지 말고, 획을 나눠서 써요.',
+  OVERSHOOT: '닿는 곳에서 멈춰요.', GAP: '획이 닿을 때까지 그어요.', SHAPE: '안내선에 맞춰 다시 써 봐요.', SIZE: '알맞은 크기로 써요.', OFF_CENTER: '칸 가운데에 써요.' };
 
 // ---------- 로그인(세션은 이 탭에만) ----------
 const SESSION_KEY = 'hw-dev-session';
@@ -61,8 +72,8 @@ let rows = [], total = 0, current = null;
 function query(offset = 0) {
   const q = new URLSearchParams({ select: '*', order: 'created_at.desc', limit: String(PAGE), offset: String(offset) });
   if ($('fRole').value) q.append('role', `eq.${$('fRole').value}`);
-  if ($('fState').value === 'todo') q.append('dev_score', 'is.null');
-  if ($('fState').value === 'done') q.append('dev_score', 'not.is.null');
+  if ($('fState').value === 'todo') q.append('dev_labeled_at', 'is.null');
+  if ($('fState').value === 'done') q.append('dev_labeled_at', 'not.is.null');
   const w = $('fWriter').value.trim(); if (w) q.append('writer', `like.*${w.replace(/[*,()]/g, '')}*`);
   const ch = $('fCh').value.trim(); if (ch) q.append('ch', `eq.${ch}`);
   return q.toString();
@@ -84,7 +95,7 @@ function renderList() {
     const b = el('button', { className: 'row', type: 'button' },
       el('span', { className: 'ch', textContent: r.ch }),
       el('span', { className: 'meta' }, el('b', { textContent: r.writer }), el('br'), el('small', { textContent: `${when} · ${DEVICE[r.device] || r.device}` })),
-      el('span', {}, r.dev_score != null ? el('span', { className: 'tag done', textContent: `채점 ${r.dev_score}` }) : el('span', { className: 'tag todo', textContent: '채점 전' }),
+      el('span', {}, r.dev_score != null ? el('span', { className: 'tag done', textContent: `채점 ${r.dev_score}` }) : (r.dev_labeled_at ? el('span', { className: 'tag', textContent: '제외' }) : el('span', { className: 'tag todo', textContent: '채점 전' })),
         r.teacher_score != null ? el('span', { className: 'tag t', textContent: `교사 ${r.teacher_score}` }) : ''));
     b.setAttribute('role', 'listitem');
     b.setAttribute('aria-current', String(r.id === current));
@@ -161,7 +172,7 @@ function renderRubric() {
   const box = $('rubric'); box.replaceChildren();
   const tabs = el('div', { className: 'rb-tabs' });
   tabs.setAttribute('role', 'tablist');
-  for (const [k, label] of [['score', '점수 기준'], ['feedback', '피드백 상황']]) {
+  for (const [k, label] of [['score', '점수 기준'], ['labels', '항목 정의']]) {
     const b = el('button', { type: 'button', textContent: label });
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(rubricTab === k));
     b.onclick = () => { rubricTab = k; renderRubric(); activeForm?.refresh(); };
@@ -194,28 +205,24 @@ function renderRubric() {
     const ul = el('ul'); for (const p of PRECEDENTS) ul.append(el('li', { textContent: `${p.ch} ${p.score}점: ${p.decision}` }));
     prec.append(ul); body.append(prec);
   } else {
-    body.append(el('p', { className: 'rb-tip', textContent: '이 글씨를 쓴 학생에게 가장 먼저 해 줄 말 하나를 골라요. 위에 있을수록 먼저 말해요. 누르면 채점 칸에 들어가요.' }));
-    for (const g of CASE_GROUPS) {
-      body.append(el('div', { className: 'fb-group', textContent: g }));
-      for (const c of FEEDBACK_CASES.filter((x) => x.group === g)) {
-        const b = el('button', { type: 'button', className: 'fb' },
-          el('b', { textContent: c.name }), el('span', { className: `badge ${c.engine ? 'on' : 'new'}`, textContent: c.engine ? '엔진 앎' : '새로 필요' }),
-          el('q', { textContent: c.say }));
-        b.dataset.id = c.id;
-        b.title = `알아채는 법: ${c.detect}`;
-        b.onclick = () => activeForm?.pickFeedback(c.id);
-        body.append(b);
+    body.append(el('p', { className: 'rb-tip', textContent: '이 정의 하나로만 고릅니다. 위에 있을수록 학생에게 먼저 말해요(★로 바꿀 수 있음). 넘어감·안 닿음·획 모양·크기는 누를 때마다 살짝 → 뚜렷 → 해제.' }));
+    for (const g of LABEL_GROUPS) {
+      body.append(el('div', { className: 'fb-group', textContent: `${g.name} · ${g.note}` }));
+      for (const l of LABELS.filter((x) => x.group === g.key)) {
+        body.append(el('div', { className: 'fb' }, el('b', { textContent: l.name }),
+          el('span', { className: `badge ${l.severity ? 'new' : 'on'}`, textContent: l.severity ? '살짝/뚜렷' : '있음/없음' }),
+          el('span', { className: 'def', textContent: l.def }), el('q', { textContent: SAY[l.code] })));
       }
     }
+    body.append(el('div', { className: 'fb-group', textContent: '그 밖' }),
+      el('div', { className: 'fb' }, el('b', { textContent: EXCLUDE.name }), el('span', { className: 'badge' }), el('span', { className: 'def', textContent: `${EXCLUDE.def}. 점수 학습에서 빠져요.` })),
+      el('p', { className: 'rb-tip', textContent: '칭찬(잘함·나아짐·격려)은 고르지 않아요. 점수와 지난 기록으로 앱이 정해요.' }));
   }
 }
 // 지금 고른 문제·피드백과 맞는 줄을 표시
 function markRubric(codes) {
   const hit = rubricFor(codes);
   document.querySelectorAll('#rubric .rb').forEach((row) => row.classList.toggle('hit', !!hit && row.dataset.key === hit.name));
-}
-function markFeedback(id) {
-  document.querySelectorAll('#rubric .fb').forEach((row) => row.classList.toggle('hit', row.dataset.id === id));
 }
 const RUBRIC_KEY = 'hw-dev-rubric';
 function setRubric(open) {
@@ -364,52 +371,29 @@ function open(id) {
   const form = el('div', { className: 'form' });
   const scoreIn = el('input', { type: 'number', min: 0, max: 100, step: 1, inputMode: 'numeric', placeholder: '0~100', value: r.dev_score ?? '' });
   scoreIn.setAttribute('aria-label', '개발자 점수');
-  const chips = el('div', { className: 'chips' });
-  const mk = (code, name, cls = '') => {
-    const inp = el('input', { type: 'checkbox', value: code });
-    inp.checked = code === 'NONE' ? (Array.isArray(r.dev_issues) && !r.dev_issues.length) : (r.dev_issues || []).includes(code);
-    chips.append(el('label', { className: `chip ${cls}` }, inp, el('span', { textContent: name })));
-    return inp;
-  };
-  const none = mk('NONE', '문제 없음', 'none');
-  const checks = Object.entries(ISSUE_NAMES_KO).map(([c, n]) => mk(c, n));
-  for (const c of [none, ...checks]) c.onchange = () => {
-    if (c.checked) { if (c === none) checks.forEach((o) => { o.checked = false; }); else none.checked = false; }
-    updateHint();
-  };
+  // 평가 항목(11개 + 제외, 살짝/뚜렷, ★ 먼저 말할 것). 예전 표시는 새 항목으로 옮겨 보여 준다
+  const chips = el('div');
+  const picker = createLabelPicker(chips, { value: migrateLabels(r.dev_issues), star: migrateFeedback(r.dev_feedback), withStar: true, withTags: true,
+    onChange: () => { updateHint(); changed(); } });
   const note = el('textarea', { placeholder: '기준·이유를 직접 적어요 (예: 획이 떨림, 너무 기울어짐)', maxLength: 500, value: r.dev_note || '' });
   note.setAttribute('aria-label', '메모');
   const msg = el('p', { className: 'muted' }); msg.setAttribute('aria-live', 'polite');
-  // 학생에게 줄 피드백(상황 하나 + 직접 쓴 문장)
-  const fbSel = el('select'); fbSel.setAttribute('aria-label', '학생에게 줄 피드백');
-  fbSel.append(el('option', { value: '', textContent: '— 상황을 고르세요 —' }));
-  for (const g of CASE_GROUPS) {
-    const og = el('optgroup', { label: g });
-    for (const c of FEEDBACK_CASES.filter((x) => x.group === g)) og.append(el('option', { value: c.id, textContent: `${c.name}${c.engine ? '' : ' (새로 필요)'}` }));
-    fbSel.append(og);
-  }
-  fbSel.value = r.dev_feedback || '';
-  const fbSay = el('div', { className: 'fb-say' });
-  const fbText = el('input', { type: 'text', maxLength: 200, value: r.dev_feedback_text || '', placeholder: '직접 쓴 피드백 문장 (비우면 위 상황의 기본 문장)' });
-  fbText.setAttribute('aria-label', '직접 쓴 피드백 문장');
-  const showSay = () => { const c = CASE_BY_ID[fbSel.value]; fbSay.textContent = c ? `🔊 “${c.say}”` : ''; markFeedback(fbSel.value); };
-  fbSel.onchange = showSay;
   // 고른 문제 버튼에 맞는 기준 범위를 바로 보여 준다(엔진 점수가 아니라 교사 기준표에서). 범위를 벗어나면 알림
   const hint = el('div', { className: 'hint' }); hint.setAttribute('aria-live', 'polite');
   const updateHint = () => {
-    const picked = none.checked ? [] : checks.filter((c) => c.checked).map((c) => c.value);
-    const any = none.checked || picked.length;
-    const rb = any ? rubricFor(picked) : null;
-    markRubric(any ? picked : null);
+    const { labels, star } = picker.get();
     hint.className = 'hint';
+    if (labels && labels[0] === EXCLUDE.code) { markRubric(null); hint.textContent = '채점 제외: 점수는 넣지 않아도 돼요. 점수 학습에서 빠져요.'; return; }
+    const rb = rubricFor(labels);
+    markRubric(labels);
     if (!rb) { hint.textContent = '보이는 문제를 고르면 기준 범위를 알려 드려요.'; return; }
-    const sub = rb.codes.includes('OVERSHOOT') ? ' (살짝 지나친 정도면 80~85)' : '';
-    hint.textContent = `📋 ${rb.name}: 보통 ${bandText(rb.band)}${rb.typical ? `, 대표 ${rb.typical}` : ''}${sub} · ${rb.rule}`;
+    const first = primaryLabel(labels, star);
+    hint.textContent = `📋 ${rb.name}: 보통 ${bandText(rb.band)}${rb.typical ? `, 대표 ${rb.typical}` : ''} · ${rb.rule}`
+      + (first ? ` · 🔊 학생에게: “${SAY[first]}”` : '');
     const v = Number(scoreIn.value);
     const [lo, hi] = rb.band;
     if (scoreIn.value !== '' && Number.isFinite(v) && ((lo != null && v < lo) || (hi != null && v > hi))) {
-      const okSlight = rb.codes.includes('OVERSHOOT') && v >= 80 && v <= 85;
-      if (!okSlight) { hint.className = 'hint warn'; hint.textContent += ` — ${v}점은 기준 범위를 벗어나요. 예외라면 메모에 이유를 적어 주세요.`; }
+      hint.className = 'hint warn'; hint.textContent += ` — ${v}점은 기준 범위를 벗어나요. 예외라면 메모에 이유를 적어 주세요.`;
     }
   };
   const reveal = el('div', { className: 'reveal' });
@@ -418,8 +402,7 @@ function open(id) {
   const delBtn = el('button', { className: 'btn danger', type: 'button', textContent: '삭제' });
   form.append(
     el('h3', { textContent: '개발자 점수' }), el('div', { className: 'score-in' }, scoreIn, el('span', { className: 'muted', textContent: 'Enter로 저장' })),
-    el('h3', { textContent: '보이는 문제 (여러 개 고를 수 있어요)' }), chips, hint,
-    el('h3', { textContent: '학생에게 줄 피드백 (하나)' }), el('div', { className: 'fb-pick' }, fbSel, fbSay, fbText),
+    el('h3', { textContent: '보이는 문제' }), chips, hint,
     el('h3', { textContent: '기준·메모 (직접 입력)' }), note,
     el('div', { className: 'actions' }, saveBtn, nextBtn, delBtn), msg, reveal);
 
@@ -436,26 +419,26 @@ function open(id) {
     const why = el('div', { className: 'why' }, el('b', { textContent: '엔진이 이 점수를 준 이유' }));
     for (const k of explainKo(now)) why.append(el('span', { className: `k-${k.kind}`, textContent: k.text }));
     reveal.append(why);
-    if (r.teacher_score != null) add('교사 표본', `${r.teacher_score}점 · ${r.teacher_issues ? issueNames(r.teacher_issues) : '문제 표시 안 함'}`);
+    if (r.teacher_score != null) add('교사 표본', `${r.teacher_score}점 · ${labelNames(migrateLabels(r.teacher_issues))}`);
     if (r.dev_score != null) {
       const diff = now.score - r.dev_score;
-      add('개발자', `${r.dev_score}점 · ${r.dev_issues ? issueNames(r.dev_issues) : '문제 표시 안 함'}`);
+      add('개발자', `${r.dev_score}점 · ${labelNames(migrateLabels(r.dev_issues))}`);
       reveal.append(el('div', { className: 'diff-big', textContent: `지금 엔진 − 개발자 = ${diff > 0 ? '+' : ''}${diff}점` }));
-      // 피드백 비교: 엔진이 실제로 한 말 vs 개발자가 고른 말
-      if (r.dev_feedback || r.dev_feedback_text) {
-        const eng = speechCase(now), devC = CASE_BY_ID[r.dev_feedback];
+      const mine = migrateLabels(r.dev_issues);
+      if (mine && mine[0] !== EXCLUDE.code) {
+        // 항목 비교(평가 항목 기준)
+        const got = engineToLabels(now.issues), want = labelCodes(mine);
+        const miss = want.filter((c) => !got.includes(c)), extra = got.filter((c) => !want.includes(c));
+        if (miss.length) add('엔진이 놓친 항목', miss.map((c) => LABEL_BY_CODE[c]?.name || c).join(', '));
+        if (extra.length) add('엔진만 짚은 항목', extra.map((c) => LABEL_BY_CODE[c]?.name || c).join(', '));
+        // 학생에게 할 말 비교: 엔진이 실제로 한 말의 항목 vs 개발자 기준(★ 또는 우선순위)
+        const engFirst = engineToLabels([speechCase(now)])[0] || null, devFirst = primaryLabel(mine, migrateFeedback(r.dev_feedback));
         const cmp = el('div', { className: 'cmp' });
-        cmp.append(el('div', {}, el('b', { textContent: '엔진이 한 말 ' }), speechKo(now) ? `“${speechKo(now)}”` : '(말하지 않음 · 화면 칭찬)', ` [${CASE_BY_ID[eng]?.name || eng}]`));
-        cmp.append(el('div', {}, el('b', { textContent: '개발자가 고른 말 ' }), `“${r.dev_feedback_text || devC?.say || ''}”`, devC ? ` [${devC.name}]` : ''));
-        if (devC) cmp.append(eng === r.dev_feedback ? el('div', { className: 'same', textContent: '✓ 같은 상황을 골랐어요' })
-          : el('div', { className: 'diffr', textContent: devC.engine ? '✗ 엔진이 다른 상황을 먼저 말했어요' : '✗ 엔진이 아직 모르는 상황이에요(새로 필요)' }));
+        cmp.append(el('div', {}, el('b', { textContent: '엔진이 한 말 ' }), speechKo(now) ? `“${speechKo(now)}”` : '(말하지 않음 · 화면 칭찬)'));
+        if (devFirst) cmp.append(el('div', {}, el('b', { textContent: '먼저 말할 것(개발자) ' }), `${LABEL_BY_CODE[devFirst].name} “${SAY[devFirst]}”`));
+        if (devFirst || engFirst) cmp.append(devFirst === engFirst ? el('div', { className: 'same', textContent: '✓ 같은 것을 먼저 말해요' })
+          : el('div', { className: 'diffr', textContent: '✗ 엔진이 다른 것을 먼저 말했어요' }));
         reveal.append(cmp);
-      }
-      if (r.dev_issues) {
-        const got = now.issues.map((i) => i.code);
-        const miss = r.dev_issues.filter((c) => !got.includes(c)), extra = got.filter((c) => !r.dev_issues.includes(c) && ISSUE_NAMES_KO[c]);
-        if (miss.length) add('엔진이 놓친 문제', issueNames(miss));
-        if (extra.length) add('엔진만 짚은 문제', issueNames(extra));
       }
     }
   };
@@ -464,54 +447,51 @@ function open(id) {
   // 저장: 입력을 바꾸면 1초 뒤 자동 저장(엔진 점수는 아직 안 보임). '저장하고 엔진 보기'나 다음 글씨로 넘어가면 바로 저장
   // 다시 고치면 batch_id를 비워 '반영 안 됨'으로 돌린다(다음 제출에 들어감)
   const validScore = () => { const v = Number(scoreIn.value); return scoreIn.value !== '' && Number.isInteger(v) && v >= 0 && v <= 100 ? v : null; };
+  const isExcluded = () => (picker.get().labels || [])[0] === EXCLUDE.code;
   const buildPatch = (v) => {
-    const picked = checks.filter((c) => c.checked).map((c) => c.value);
-    return { dev_score: v, dev_issues: none.checked ? [] : (picked.length ? picked : null), dev_note: note.value.trim() || null,
-      dev_feedback: fbSel.value || null, dev_feedback_text: fbText.value.trim() || null,
+    const { labels, star } = picker.get();
+    return { dev_score: isExcluded() ? null : v, dev_issues: labels, dev_note: note.value.trim() || null,
+      dev_feedback: star, dev_feedback_text: null,
       dev_labeled_at: new Date().toISOString(), dev_by: session.uid, batch_id: null };
   };
   let dirty = false, timer = null, saving = null;
   const persist = async () => {
     clearTimeout(timer); timer = null;
     const v = validScore();
-    if (!dirty || v == null) return v != null;
+    if (!dirty || (v == null && !isExcluded())) return v != null || isExcluded();
     dirty = false;
     saving = withAuth((t) => updateAttempt(t, r.id, buildPatch(v)))
       .then(([upd]) => { Object.assign(r, upd || {}); auto.textContent = `자동 저장됨 · ${fmtDate(new Date().toISOString()).split(' ').pop()}`; renderList(); refreshSync(); return true; })
       .catch(() => { dirty = true; auto.textContent = ''; msg.textContent = '저장하지 못했어요. 인터넷을 확인해 주세요.'; return false; });
     return saving;
   };
-  const changed = () => { dirty = true; auto.textContent = validScore() == null ? '' : '저장 중…'; clearTimeout(timer); timer = setTimeout(persist, 1000); };
+  const changed = () => { dirty = true; auto.textContent = validScore() == null && !isExcluded() ? '' : '저장 중…'; clearTimeout(timer); timer = setTimeout(persist, 1000); };
   flushSave = persist;
   const auto = el('span', { className: 'autosaved' }); auto.setAttribute('aria-live', 'polite');
   saveBtn.textContent = '저장하고 엔진 보기';
   saveBtn.after(auto);
   saveBtn.onclick = async () => {
-    if (validScore() == null) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
+    if (validScore() == null && !isExcluded()) { msg.textContent = '0부터 100 사이 정수로 넣어 주세요.'; scoreIn.focus(); return; }
     dirty = true; saveBtn.disabled = true;
     const ok = await persist(); saveBtn.disabled = false;
     if (ok) { msg.textContent = ''; showReveal(); nextBtn.focus(); }
   };
-  for (const c of [none, ...checks]) c.addEventListener('change', changed);
-  fbSel.addEventListener('change', changed); fbText.addEventListener('input', changed); note.addEventListener('input', changed);
+  note.addEventListener('input', changed);
   scoreIn.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
   scoreIn.oninput = () => { updateHint(); changed(); };
-  updateHint(); showSay();
+  updateHint();
   // 기준표·피드백 목록에서 바로 채우기
   activeForm = {
     applyRubric(rb) {
-      const code = rb.codes[0];
-      none.checked = code === 'NONE';
-      checks.forEach((c) => { c.checked = c.value === code; });
+      picker.set(rb.code === 'NONE' ? [] : [rb.code + (rb.sev === 'strong' ? '!' : '')], null);
       if (rb.typical != null) scoreIn.value = String(rb.typical);
       updateHint(); changed(); scoreIn.focus(); scoreIn.select();
     },
-    pickFeedback(id) { fbSel.value = id; showSay(); changed(); fbSel.focus(); },
-    refresh() { updateHint(); showSay(); },
+    refresh() { updateHint(); },
   };
   nextBtn.onclick = () => {
     const i = rows.findIndex((x) => x.id === r.id);
-    const nxt = rows.slice(i + 1).find((x) => x.dev_score == null) || rows[i + 1];
+    const nxt = rows.slice(i + 1).find((x) => !x.dev_labeled_at) || rows[i + 1];
     if (nxt) open(nxt.id); else msg.textContent = '목록의 마지막이에요. 더 보기나 불러오기를 눌러 주세요.';
   };
   delBtn.onclick = async () => {

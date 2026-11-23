@@ -28,7 +28,7 @@ export const ISSUE_NAMES_KO = {
   WRONG_ORDER: '획순',
   WRONG_DIRECTION: '방향',
   STROKES_JOINED: '이어 씀',
-  STROKE_SPLIT: '나눠 씀',
+  STROKE_SPLIT: '끊어 씀',
   ALT_FORM: '다른 꼴',
   OVERSHOOT: '넘어감',
   GAP: '안 닿음',
