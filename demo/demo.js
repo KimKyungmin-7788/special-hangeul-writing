@@ -226,7 +226,28 @@ function renderCarousel() {
 }
 
 // 쓴 칸이 작아지며 캐러셀 끝 카드 자리로 날아가는 효과
+// 카드가 캐러셀로 내려갈 때: 종이가 스윽 미끄러지는 소리 + 내려앉는 작은 톡(효과음 켰을 때만)
+function cardSound() {
+  if (!$('sfxOn').checked) return;
+  const ac = scratch.ctx(); if (!ac) return;
+  const t = ac.currentTime + 0.01;
+  // 스윽: 잡음을 대역 필터로 걸러 높은 데서 낮은 쪽으로
+  const len = Math.floor(ac.sampleRate * 0.4), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(2600, t); bp.frequency.exponentialRampToValueAtTime(700, t + 0.38);
+  const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.06); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  src.connect(bp).connect(g).connect(ac.destination); src.start(t); src.stop(t + 0.42);
+  // 톡: 카드가 내려앉을 때(날아가는 애니메이션 0.48초에 맞춤)
+  const at = t + 0.44, o = ac.createOscillator(), og = ac.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(420, at); o.frequency.exponentialRampToValueAtTime(220, at + 0.08);
+  og.gain.setValueAtTime(0.0001, at); og.gain.exponentialRampToValueAtTime(0.18, at + 0.006); og.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+  o.connect(og).connect(ac.destination); o.start(at); o.stop(at + 0.14);
+}
+
 function sendToCarousel(a) {
+  cardSound();
   const from = pad.getBoundingClientRect();
   const snapshot = pad.toDataURL();
   renderCarousel();
