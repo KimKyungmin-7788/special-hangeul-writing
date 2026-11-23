@@ -944,28 +944,41 @@ window.addEventListener('resize', () => { setPadSize(padWanted, false); });
 // ---------- 쓰기 칸 크기 조절 ----------
 // 획은 칸 기준 0~1 좌표로 저장되므로 크기를 바꿔도 그대로 맞춰 다시 그려지고 채점도 같다.
 const PAD_GAP = 28; // 쓰기 칸과 시범 칸 사이(크기 조절 손잡이가 끼지 않게). index.html의 .pad-row gap과 같아야 한다
-const PAD_MIN = 200, PAD_STEP = 20, PAD_KEY = 'hw-pref-padSize';
+// 칸 크기는 실제 종이의 십자칸처럼 1.5cm ~ 5cm. 화면의 1cm가 몇 픽셀인지는 브라우저가 알려 주지 않으므로
+// 기기 종류로 어림한다(CSS 픽셀/cm): 아이패드 약 52(264ppi, 2배), 휴대폰 약 63, 컴퓨터는 CSS 표준 37.8.
+// 기기마다 몇 mm 차이 날 수 있다.
+const PX_PER_CM = (() => {
+  const touch = navigator.maxTouchPoints > 1, ua = navigator.userAgent;
+  if (/iPad/.test(ua) || (touch && /Macintosh/.test(ua))) return 52;
+  if (touch && Math.min(screen.width, screen.height) < 600) return 63;
+  if (touch && /Android/.test(ua)) return 50;
+  return 96 / 2.54;
+})();
+const PAD_MIN_CM = 1.5, PAD_MAX_CM = 5, PAD_STEP_CM = 0.5;
+const PAD_MIN = PAD_MIN_CM * PX_PER_CM, PAD_MAX = PAD_MAX_CM * PX_PER_CM, PAD_STEP = PAD_STEP_CM * PX_PER_CM, PAD_KEY = 'hw-pref-padCm';
 const padWrap = $('padWrap'), padHandle = $('padResize'), padLabel = $('padSizeLabel');
-let padSize = 420;
-let padWanted = 420; // 선생님이 고른 크기. 모델링을 켜서 줄어들어도 끄면 이 크기로 돌아온다
+let padSize = PAD_MAX;
+let padWanted = PAD_MAX; // 선생님이 고른 크기. 모델링을 켜서 줄어들어도 끄면 이 크기로 돌아온다
 const padMax = () => {
   const stage = padWrap.closest('.stage'), cs = getComputedStyle(stage);
   const inner = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   // 모델링을 켜면 쓰기 칸과 모델링 칸이 사이 PAD_GAP을 두고 나란히 들어가야 한다
-  return modelOn ? (inner - PAD_GAP) / 2 : inner;
+  return Math.min(PAD_MAX, modelOn ? (inner - PAD_GAP) / 2 : inner);
 };
+const cmText = (px) => `${(px / PX_PER_CM).toFixed(1)}cm`;
 function setPadSize(px, save = true) {
   const max = padMax();
   padSize = Math.round(Math.max(Math.min(PAD_MIN, max), Math.min(max, px)));
   if (save) padWanted = padSize;
   document.documentElement.style.setProperty('--pad-size', padSize + 'px');
-  padHandle.setAttribute('aria-valuemax', String(Math.round(padMax())));
+  padHandle.setAttribute('aria-valuemin', String(Math.round(Math.min(PAD_MIN, max))));
+  padHandle.setAttribute('aria-valuemax', String(Math.round(max)));
   padHandle.setAttribute('aria-valuenow', String(padSize));
-  padHandle.setAttribute('aria-valuetext', `${padSize}픽셀`);
-  padLabel.textContent = `${padSize}px`;
+  padHandle.setAttribute('aria-valuetext', cmText(padSize));
+  padLabel.textContent = cmText(padSize);
   fitCanvas();
   fitModel();
-  if (save) { try { localStorage.setItem(PAD_KEY, String(padSize)); } catch {} }
+  if (save) { try { localStorage.setItem(PAD_KEY, (padSize / PX_PER_CM).toFixed(2)); } catch {} }
 }
 let padDrag = null;
 padHandle.addEventListener('pointerdown', (e) => {
@@ -992,7 +1005,7 @@ padHandle.addEventListener('keydown', (e) => {
   const d = { ArrowRight: PAD_STEP, ArrowUp: PAD_STEP, ArrowLeft: -PAD_STEP, ArrowDown: -PAD_STEP }[e.key];
   if (d) { e.preventDefault(); setPadSize(padSize + d); }
 });
-try { const saved = Number(localStorage.getItem(PAD_KEY)); if (saved) padSize = padWanted = saved; } catch {}
+try { const cm = Number(localStorage.getItem(PAD_KEY)); if (cm) padSize = padWanted = cm * PX_PER_CM; } catch {}
 
 renderGrid();
 renderCarousel();
