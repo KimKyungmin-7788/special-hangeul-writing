@@ -54,6 +54,22 @@ function partialPath(pts, k) {
   return out;
 }
 
+// 안내 글자 진하기(1 보통 → 0.1 거의 안 보임). S를 한 번 받으면 흐려지고, 흐린 채로 또 S를 받으면 다음 글자로 넘어간다
+let guideAlpha = 1, guideFaded = false, guideFadeRaf = null;
+const GUIDE_FAINT = 0.1;
+function setGuideFaded(faded, animate = true) {
+  guideFaded = faded;
+  cancelAnimationFrame(guideFadeRaf);
+  const to = faded ? GUIDE_FAINT : 1, from = guideAlpha, t0 = performance.now(), dur = animate ? 700 : 0;
+  const step = (now) => {
+    const k = dur ? Math.min(1, (now - t0) / dur) : 1;
+    guideAlpha = from + (to - from) * (1 - (1 - k) ** 3);
+    redraw();
+    if (k < 1) guideFadeRaf = requestAnimationFrame(step);
+  };
+  if (dur) guideFadeRaf = requestAnimationFrame(step); else step(t0);
+}
+
 function drawGuide(upto = Infinity, partial = 1) {
   ctx.save();
   ctx.setLineDash([0.015, 0.015]);
@@ -61,6 +77,8 @@ function drawGuide(upto = Infinity, partial = 1) {
   line([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004);
   ctx.restore();
   if (!$('guideOn').checked && upto === Infinity) return;
+  ctx.save();
+  if (upto === Infinity) ctx.globalAlpha = guideAlpha; // '획순 보기' 애니메이션은 늘 또렷하게
   getTemplate(current).strokes.forEach((s, i) => {
     if (i > upto) return;
     const pts = i === upto ? partialPath(s.points, partial) : s.points;
@@ -72,6 +90,7 @@ function drawGuide(upto = Infinity, partial = 1) {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 0.03px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(String(i + 1), p.x, p.y + 0.001);
   });
+  ctx.restore();
 }
 
 function redraw() {
@@ -331,6 +350,7 @@ function loadAttempt(id) {
   viewing = id;
   const g = getTemplate(a.char).group;
   if (g !== group) { group = g; chars = listChars(group); }
+  if (current !== a.char && guideFaded) setGuideFaded(false, false);
   current = a.char;
   strokes = a.strokes.map((st) => st.map((p) => ({ ...p })));
   resetModel();
@@ -382,7 +402,7 @@ function startAuto() {
   autoRun = { raf: requestAnimationFrame(tick) };
 }
 
-// 두근 소리: 낮은 '쿵'과 조금 약한 '쿵'을 이어서(심장 소리). 작은 스피커에서도 들리게 배음을 섞는다
+// 쿵 소리: 낮은 '쿵' 한 번. 작은 스피커에서도 들리게 배음을 섞는다
 function heart(strength = 1) {
   if (!$('sfxOn').checked) return;
   const ac = scratch.ctx(); if (!ac) return;
@@ -398,8 +418,7 @@ function heart(strength = 1) {
       o.connect(gn).connect(ac.destination); o.start(at); o.stop(at + 0.24);
     }
   };
-  thump(t, strength);
-  thump(t + 0.17, 0.62 * strength);
+  thump(t, strength); // 칸이 한 번 꿀렁일 때 '쿵' 한 번
 }
 
 // ---------- 서걱 소리 (Web Audio 잡음) ----------
@@ -498,7 +517,11 @@ function score() {
   sendToCarousel(a); // 쓴 칸이 아래 캐러셀로 날아가 쌓이고
   strokes = [];      // 큰 쓰기 칸은 자동으로 비워 새 글쓰기를 준비한다
   redraw();
-  if (r.grade === 'S' && $('autoNext').checked) scheduleAdvance();
+  if (r.grade === 'S' && $('autoNext').checked) {
+    // 첫 S: 안내 글자를 거의 안 보이게 흐리고 한 번 더. 흐린 채로 S: 다음 글자로
+    if (!guideFaded && $('guideOn').checked) { setGuideFaded(true); toast('S! 이번엔 안내 글자 없이 써 봐요.'); }
+    else scheduleAdvance();
+  }
 }
 
 // ---------- S를 받으면 다음 글자로 ----------
@@ -515,7 +538,7 @@ function scheduleAdvance() {
   toast(`S! 다음 글자 '${next}'로 넘어가요.`);
   advanceTimer = setTimeout(() => {
     advanceTimer = null;
-    current = next; strokes = []; toast('');
+    current = next; strokes = []; toast(''); setGuideFaded(false, false);
     renderGrid(); redraw(); resetModel();
   }, ADVANCE_MS);
 }
@@ -836,7 +859,7 @@ document.querySelectorAll('.tab').forEach((t) => {
 function select(ch) {
   cancelAuto(); cancelAdvance();
   if (viewing) { viewing = null; renderCarousel(); }
-  current = ch; strokes = []; toast('');
+  current = ch; strokes = []; toast(''); if (guideFaded) setGuideFaded(false, false);
   $('result').innerHTML = '<p class="empty">글자를 쓰고 \'다 썼어요\'를 누르세요.</p>';
   renderGrid(); redraw(); resetModel();
 }
