@@ -17,4 +17,5 @@
 - 서버: Supabase `kyungmin-main-seoul`(id `pbpkoumwdjjciayxpbti`)의 `hw_` 테이블만 쓴다. 다른 앱 테이블(`vs_`, `ws_`, `coffee_` 등)은 건드리지 않는다. 스키마 변경은 사용자 확인 후.
 - 학생 개인정보: 실명 입력 금지(작성자 코드는 `초-3-01` 형식). 서버 저장·외부 전송을 늘리면 `privacy.html`과 `vercel.json`의 CSP를 같이 고친다.
 - 채점실 제출분 반영: 매일 21:51(한국) 예약 작업이 이 세션을 깨우면 `tools/APPLY.md` 절차대로 한다. 채점 규칙(`src/engine.js`)은 자동으로 바꾸지 않고 `docs/engine-report.md`에 제안만 한다.
+- 2단계(점수 보정 학습) 신호: 반영 때 `tools/readiness.mjs` 조건을 모두 넘으면 한 번만 알린다. 학습모델은 운영자 승인 뒤에 만든다.
 - 확인: `npm test`
