@@ -9,7 +9,7 @@ import { migrateLabels } from '../src/labels.js';
 // 넘어갈 조건(바꾸려면 운영자와 합의 후 docs/engine-report.md에 이유를 남긴다)
 export const CRITERIA = {
   samples: 300,        // 점수가 있는 표본(채점 제외·이견 표본 빼고)
-  writers: 15,         // 서로 다른 작성자 코드
+  writers: 3,          // 서로 다른 작성자 코드 (2026-11-24 운영자 요청으로 15 → 3)
   charCoverage: 0.8,   // 표본 5개 이상인 글자의 비율(자음·모음·가나다 49자 중)
   perChar: 5,
   perGrade: 20,        // S·A·B·C·F 등급마다 교사 점수 표본 수
