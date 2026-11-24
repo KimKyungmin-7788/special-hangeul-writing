@@ -6,7 +6,7 @@ import { CONSONANTS } from './strokes-consonants.js';
 import { VOWELS } from './strokes-vowels.js';
 
 // 채점 규칙이 바뀌면 올린다. 서버에 저장한 글씨마다 어느 엔진으로 채점했는지 남긴다
-export const ENGINE_VERSION = '0.4';
+export const ENGINE_VERSION = '0.5';
 
 const N = 32; // 획 하나를 다시 찍을 점 개수
 
@@ -29,7 +29,8 @@ const SHAPE_STRICTNESS = 1.0;
 const ASPECT_FIT = 0.8;
 // 획순·방향이 틀리면 모양이 좋아도 이 점수를 넘지 못한다
 // (다른 글자 → F, 획순 틀림 → 최고 C, 방향 틀림 → 최고 B)
-const CAPS = { WRONG_CHAR: 39, WRONG_ORDER: 69, STROKE_SPLIT: 72, ALT_FORM: 65, WRONG_DIRECTION: 79 };
+const CAPS = { WRONG_CHAR: 10, WRONG_ORDER: 69, STROKE_SPLIT: 72, ALT_FORM: 65, WRONG_DIRECTION: 79 };
+// 다른 글자 상한: 2026-11-24 운영자 결정으로 39 → 10(채점실 교사 점수 5~10점)
 // 이어 쓰기: 이은 횟수만큼 상한을 낮춘다(1번 이으면 60, 2번 이상이면 40). 교사 표본: 3획 ㄹ을 1획으로 40점, ㅁ을 2획으로 60점
 const joinedCap = (joins) => Math.max(40, 80 - 20 * joins);
 // 전체 모양(챔퍼 거리) 비교의 허용 폭 배율. 챔퍼 거리는 가장 가까운 점끼리 재서 값이 작게 나오므로 더 엄격하게 둔다
