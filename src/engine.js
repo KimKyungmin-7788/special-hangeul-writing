@@ -394,7 +394,58 @@ function evaluateWith(char, tpl, userStrokes, opts) {
     result.issues.unshift({ code: 'WRONG_CHAR', looksLike: look.char });
     capScore(result, CAPS.WRONG_CHAR, 'WRONG_CHAR');
   }
+  // 뭉갬 후보(보고만): 점수는 바꾸지 않고 측정값만 남긴다. tools/mash-report.mjs가 교사 점수와 견준다
+  Object.assign(result.measures, mashMeasures(tpl, userStrokes, !!opts.motorSupport));
   return result;
+}
+
+// ---------- 뭉갬 후보 (2026-11-24, 보고만) ----------
+// 알아볼 수 없게 뭉갠 글씨를 찾는 시험 기준. 채점실 표본 5개(교사 5~10점)를 보고 정했고 아직 점수에 쓰지 않는다.
+//  가. 마구 덧그림: 선 총길이가 바른 글자의 MASH_LEN배 이상이고, 선끼리 엇갈린 곳이 MASH_CROSS번 이상
+//  나. 한 붓 뭉갬: 3획 이상 글자를 절반 이하 획 수로 쓰고, 꺾인 각도 합이 바른 글자보다 MASH_TURN(라디안) 이상 많음
+// 운동 지원 학생은 손떨림으로 꺾임·엇갈림이 많아지므로 후보로 보지 않는다.
+const MASH_LEN = 1.3, MASH_CROSS = 5, MASH_TURN = 10, MASH_STEP = 0.02;
+function resampleXY(pts, d) {
+  const out = [{ x: pts[0].x, y: pts[0].y }];
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    let px = pts[i - 1].x, py = pts[i - 1].y; const qx = pts[i].x, qy = pts[i].y;
+    let seg = Math.hypot(qx - px, qy - py);
+    while (acc + seg >= d) { const t = (d - acc) / seg; px += (qx - px) * t; py += (qy - py) * t; out.push({ x: px, y: py }); seg = Math.hypot(qx - px, qy - py); acc = 0; }
+    acc += seg;
+  }
+  return out;
+}
+function turning(pts) {
+  const p = resampleXY(pts, MASH_STEP); let t = 0;
+  for (let i = 2; i < p.length; i++) {
+    let d = Math.abs(Math.atan2(p[i].y - p[i - 1].y, p[i].x - p[i - 1].x) - Math.atan2(p[i - 1].y - p[i - 2].y, p[i - 1].x - p[i - 2].x));
+    if (d > Math.PI) d = 2 * Math.PI - d; t += d;
+  }
+  return t;
+}
+function crossings(strokes) {
+  const segs = [];
+  strokes.forEach((st, k) => { const r = resampleXY(st, MASH_STEP); for (let i = 1; i < r.length; i++) segs.push([r[i - 1], r[i], k, i]); });
+  const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  let n = 0;
+  for (let i = 0; i < segs.length; i++) for (let j = i + 2; j < segs.length; j++) {
+    const [a, b, ka, ia] = segs[i], [c, d, kc, ic] = segs[j];
+    if (ka === kc && Math.abs(ia - ic) < 2) continue;
+    if (side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0) n++;
+  }
+  return n;
+}
+function mashMeasures(tpl, userStrokes, motor) {
+  const user = (userStrokes || []).filter((st) => st && st.length > 1);
+  const T = tpl.strokes.map((st) => st.points);
+  if (!user.length) return { mashLenRatio: 0, mashCrossings: 0, mashTurnExcess: 0, mashCandidate: 0 };
+  const lenRatio = user.reduce((a, st) => a + pathLength(st), 0) / T.reduce((a, st) => a + pathLength(st), 0);
+  const cross = crossings(user);
+  const turnExcess = user.reduce((a, st) => a + turning(st), 0) - T.reduce((a, st) => a + turning(st), 0);
+  const scribble = lenRatio >= MASH_LEN && cross >= MASH_CROSS;
+  const collapsed = T.length >= 3 && user.length <= T.length / 2 && turnExcess >= MASH_TURN;
+  return { mashLenRatio: lenRatio, mashCrossings: cross, mashTurnExcess: turnExcess, mashCandidate: !motor && (scribble || collapsed) ? 1 : 0 };
 }
 
 function capScore(r, cap, code) {
@@ -695,7 +746,7 @@ function emptyMeasures(nt) {
     order: 0, direction: 0, shape: 0, placement: 0, strokeShapeAvg: 0, strokeShapeMin: 0,
     inkShape: 0, inkShapeUniform: 0, sizeRatio: 0, aspectRatio: 0, offset: 0,
     overshoot: 0, gap: 0, joins: 0, splitPieces: 0, mergedPieces: 0, altForm: 0,
-    otherCharMargin: 0, uncappedScore: 0,
+    otherCharMargin: 0, uncappedScore: 0, mashLenRatio: 0, mashCrossings: 0, mashTurnExcess: 0, mashCandidate: 0,
   };
 }
 

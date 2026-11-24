@@ -404,3 +404,15 @@ test('평가 항목: 엔진 코드 변환·예전 표시 옮기기·먼저 말�
   assert.equal(rubricFor(['OVERSHOOT']).name, '넘어감 · 살짝');
   assert.equal(rubricFor([]).code, 'NONE');
 });
+
+// 뭉갬 후보는 보고만: 점수에 영향이 없어야 한다(측정값만 남김)
+test('뭉갬 후보: 측정값만 남기고 점수는 그대로', () => {
+  const pts = (a) => a.map(([x, y]) => ({ x, y }));
+  // ㅂ을 한 붓에 구불구불 그린 글씨
+  const scribble = [pts([[0.3, 0.2], [0.3, 0.8], [0.7, 0.8], [0.7, 0.2], [0.3, 0.5], [0.7, 0.5], [0.3, 0.2], [0.7, 0.8], [0.3, 0.8], [0.7, 0.2]])];
+  const r = evaluate('ㅂ', scribble, { device: 'finger' });
+  assert.equal(typeof r.measures.mashCandidate, 'number');
+  assert.ok(!r.caps?.some((c) => c.code === 'MASH'), '뭉갬 후보로 상한을 걸지 않음');
+  const m = evaluate('ㅂ', scribble, { device: 'finger', motorSupport: true });
+  assert.equal(m.measures.mashCandidate, 0, '운동 지원 학생은 후보로 보지 않음');
+});
