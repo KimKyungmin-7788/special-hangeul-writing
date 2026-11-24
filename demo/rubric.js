@@ -1,13 +1,13 @@
-// 교사 채점 기준표. 교사가 매긴 표본(test/samples/ 59개 + 채점실 test/server-samples/ 44개, 2026-11-24 기준)에서 문제별로 실제로 준 점수를 뽑아 만들었다.
+// 교사 채점 기준표. 교사가 매긴 표본(test/samples/ 52개 + 채점실 test/server-samples/ 44개, 2026-11-24 기준)에서 문제별로 실제로 준 점수를 뽑아 만들었다.
 // 표본이 늘면 tools로 다시 세고 이 숫자를 고친다. n은 그 줄의 근거가 된 표본 수(0이면 아직 근거 없음).
 export const RUBRIC_DATE = '2026-11-24';
-export const RUBRIC_SAMPLES = 103;
+export const RUBRIC_SAMPLES = 96;
 
 // 판단 순서: 위에서부터 먼저 걸리는 항목 하나가 점수 범위를 정하고, 그 범위 안에서 모양으로 더 깎는다.
 // code: 평가 항목(src/labels.js), sev: 정도가 있는 항목의 '살짝'(light)·'뚜렷'(strong) 줄. 없으면 정도와 상관없이
 export const RUBRIC = [
-  { code: 'WRONG_CHAR', name: '다른 글자', band: [5, 39], typical: 20, n: 14, short: '다른 글자로 읽히면 F · 알아볼 수 없으면 5~10',
-    rule: '다른 글자로 읽히면 모양이 좋아도 F. 획이 뭉개져 알아볼 수 없으면 5~10점(채점실 표본 6개).', look: 'ㅏ 자리에 ㅓ, ㅈ이 ㅊ처럼 보임' },
+  { code: 'WRONG_CHAR', name: '다른 글자', band: [5, 10], typical: 10, n: 6, short: '다른 글자로 읽히거나 알아볼 수 없으면 5~10',
+    rule: '다른 글자로 읽히거나 획이 뭉개져 알아볼 수 없으면 5~10점(채점실 표본 6개). 2026-11-24 운영자 판단으로 예전 26~39점 표본은 지움.', look: 'ㅏ 자리에 ㅓ, ㅈ이 ㅊ처럼 보임' },
   { code: 'STROKES_JOINED', name: '이어 씀', band: [40, 60], typical: 60, n: 2, short: '1번 이음 60 · 2번 이상 40',
     rule: '한 번 이으면 60, 두 번 이상 이으면 40.', look: 'ㅁ을 한 붓에(2번 이음) 40, ㄷ을 한 붓에(1번) 60' },
   { code: 'OVERSHOOT', sev: 'strong', name: '넘어감 · 뚜렷', band: [40, 65], typical: 50, n: 21, short: '칸 1/10 넘게 뚫음 → 40~65',
@@ -45,7 +45,6 @@ export const GRADES = [['S', 90], ['A', 80], ['B', 70], ['C', 60], ['F', 0]];
 export const PRECEDENTS = [
   { ch: 'ㅍ', score: 85, decision: '왼쪽 세로를 두 번에 나눠 그었는데 85점을 줬음 → 예외. 원칙은 "나눠 쓰면 70 안팎".' },
   { ch: 'ㅍ', score: 60, decision: '세로가 윗 가로를 칸의 15% 뚫었는데 60점 → 예외. 원칙은 "뚜렷한 넘어감은 자음·모음 모두 40~50".' },
-  { ch: 'ㅈ', score: 60, decision: '둘째 획이 가로를 뚫어 ㅊ처럼 보였는데 60점 → 예외. 원칙은 "다른 글자로 읽히면 F".' },
 ];
 
 // 고른 항목으로 기준 줄 찾기: 고른 항목마다 정도에 맞는 줄을 찾고(정도 미지정·살짝은 light, '!'는 strong),
