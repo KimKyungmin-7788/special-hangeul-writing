@@ -173,7 +173,7 @@ test('교사 채점 표본과 점수가 맞는다', async () => {
     for (const [k, s] of (data.samples || [data]).entries()) if (!s.disputed) all.push({ id: `${f}#${k}`, ...s });
   }
   const diffs = all.map((s) => {
-    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport });
     return { id: s.id, char: s.char, engine: r.score, teacher: s.teacherScore, d: r.score - s.teacherScore };
   });
   const mae = diffs.reduce((a, x) => a + Math.abs(x.d), 0) / diffs.length;
@@ -217,7 +217,7 @@ test('바르게(조금 엉성하게) 쓴 글자는 이어 쓰기·나눠 쓰기�
     const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
     for (const s of data.samples || [data]) {
       if (s.strokes.filter((st) => len(st) >= 0.02).length !== getTemplate(s.char).strokes.length) continue;
-      const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+      const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport });
       assert.ok(!codes(r).some((c) => c === 'STROKES_JOINED' || c === 'STROKE_SPLIT'), `${f} ${s.char}: ${codes(r)}`);
     }
   }
@@ -301,7 +301,7 @@ test('교사가 고른 항목과 엔진 항목 비교 (보고만)', async (t) =>
       const mine = migrateLabels(s.teacherIssues);
       if (!mine || s.disputed || mine.includes('EXCLUDE')) continue;
       const want = labelCodes(mine);
-      const got = labelCodes(engineToLabels(evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }).issues));
+      const got = labelCodes(engineToLabels(evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport }).issues));
       labeled++; picked += want.length;
       for (const c of want) if (got.includes(c)) found++; else missed[c] = (missed[c] || 0) + 1;
       extra += got.filter((c) => !want.includes(c)).length;
@@ -355,7 +355,7 @@ test('채점실 표본과 엔진 차이 (보고만)', async (t) => {
   const f = new URL('./server-samples/labeled.json', import.meta.url);
   if (!fs.existsSync(f)) { t.diagnostic('채점실 표본이 아직 없음'); return; }
   const ss = JSON.parse(fs.readFileSync(f, 'utf8')).samples;
-  const d = ss.map((s) => evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' }).score - s.teacherScore);
+  const d = ss.map((s) => evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport }).score - s.teacherScore);
   const mae = d.reduce((a, v) => a + Math.abs(v), 0) / (d.length || 1);
   t.diagnostic(`채점실 표본 ${ss.length}개: 평균 차이 ${mae.toFixed(1)}점, 15점 넘게 어긋남 ${d.filter((v) => Math.abs(v) > 15).length}개`);
 });

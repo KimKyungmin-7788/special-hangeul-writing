@@ -8,6 +8,10 @@ import { auth, isDev, listAttempts, listBatches, submitBatch, updateAttempt, del
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
 const $ = (id) => document.getElementById(id);
+// 등급 버튼의 대표 점수와 범위(엔진 등급 구간과 같음)
+const GRADE_REP = [['S', 95], ['A', 85], ['B', 75], ['C', 65], ['F', 30]];
+const GRADE_RANGE = { S: '90~100', A: '80~89', B: '70~79', C: '60~69', F: '0~59' };
+const gradeOfScore = (v) => (v >= 90 ? 'S' : v >= 80 ? 'A' : v >= 70 ? 'B' : v >= 60 ? 'C' : 'F');
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const DEVICE = { finger: '손가락', pen: '펜', board: '전자칠판' };
@@ -335,7 +339,7 @@ function open(id) {
   const when = new Date(r.created_at).toLocaleString('ko-KR');
   d.append(el('div', { className: 'head' },
     el('b', { textContent: r.ch }), el('span', { textContent: r.writer }),
-    el('span', { className: 'muted', textContent: `${when} · ${DEVICE[r.device] || r.device} · ${r.strokes.length}획 · 앱 채점 v${r.engine_version || '?'}` })));
+    el('span', { className: 'muted', textContent: `${when} · ${DEVICE[r.device] || r.device} · ${r.strokes.length}획 · 앱 채점 v${r.engine_version || '?'}${r.motor_support ? ' · 운동 지원' : ''}` })));
 
   // 왼쪽: 다시 보기
   const left = el('div');
@@ -371,6 +375,18 @@ function open(id) {
   const form = el('div', { className: 'form' });
   const scoreIn = el('input', { type: 'number', min: 0, max: 100, step: 1, inputMode: 'numeric', placeholder: '0~100', value: r.dev_score ?? '' });
   scoreIn.setAttribute('aria-label', '개발자 점수');
+  // 등급 버튼: 숫자를 고민하지 않고 등급만 빠르게. 점수는 등급 대표값으로 들어가고 dev_exact=false로 남는다.
+  // 숫자를 직접 고치면 dev_exact=true
+  let exact = r.dev_exact ?? (r.dev_score != null);
+  const gradeBtns = el('div', { className: 'grade-btns', role: 'group' }); gradeBtns.setAttribute('aria-label', '등급으로 매기기');
+  const syncGrades = () => { const v = validScore(); const g = v == null ? null : gradeOfScore(v);
+    for (const b of gradeBtns.children) b.setAttribute('aria-pressed', String(!exact && b.dataset.g === g)); };
+  for (const [g, rep] of GRADE_REP) {
+    const b = el('button', { type: 'button', className: `gb g-${g}`, textContent: g, title: `${g} · ${GRADE_RANGE[g]} (대표 ${rep}점)` });
+    b.dataset.g = g;
+    b.onclick = () => { scoreIn.value = String(rep); exact = false; syncGrades(); updateHint(); changed(); };
+    gradeBtns.append(b);
+  }
   // 평가 항목(11개 + 제외, 살짝/뚜렷, ★ 먼저 말할 것). 예전 표시는 새 항목으로 옮겨 보여 준다
   const chips = el('div');
   const picker = createLabelPicker(chips, { value: migrateLabels(r.dev_issues), star: migrateFeedback(r.dev_feedback), withStar: true, withTags: true,
@@ -401,7 +417,8 @@ function open(id) {
   const nextBtn = el('button', { className: 'btn', type: 'button', textContent: '다음 글씨 →' });
   const delBtn = el('button', { className: 'btn danger', type: 'button', textContent: '삭제' });
   form.append(
-    el('h3', { textContent: '개발자 점수' }), el('div', { className: 'score-in' }, scoreIn, el('span', { className: 'muted', textContent: 'Enter로 저장' })),
+    el('h3', { textContent: '개발자 점수' }), el('div', { className: 'score-in' }, scoreIn, gradeBtns),
+    el('p', { className: 'muted grade-note', textContent: '숫자를 넣거나 등급만 눌러요(등급만 누르면 대표 점수로 저장돼요). Enter로 저장' }),
     el('h3', { textContent: '보이는 문제' }), chips, hint,
     el('h3', { textContent: '기준·메모 (직접 입력)' }), note,
     el('div', { className: 'actions' }, saveBtn, nextBtn, delBtn), msg, reveal);
@@ -413,7 +430,7 @@ function open(id) {
       reveal.append(el('span', { className: 'hidden-note', textContent: '앱 채점은 내 점수를 저장하면 보여요.' }));
       return;
     }
-    const now = evaluate(r.ch, r.strokes.map((s) => s.map(([x, y]) => ({ x, y }))), { device: r.device });
+    const now = evaluate(r.ch, r.strokes.map((s) => s.map(([x, y]) => ({ x, y }))), { device: r.device, motorSupport: !!r.motor_support });
     const mine = migrateLabels(r.dev_issues);
     const excluded = mine?.[0] === EXCLUDE.code;
     const appLabels = engineToLabels(now.issues);
@@ -472,7 +489,9 @@ function open(id) {
   const isExcluded = () => (picker.get().labels || [])[0] === EXCLUDE.code;
   const buildPatch = (v) => {
     const { labels, star } = picker.get();
-    return { dev_score: isExcluded() ? null : v, dev_issues: labels, dev_note: note.value.trim() || null,
+    const ex = isExcluded();
+    return { dev_score: ex ? null : v, dev_grade: ex || v == null ? null : gradeOfScore(v), dev_exact: ex ? null : exact,
+      dev_issues: labels, dev_note: note.value.trim() || null,
       dev_feedback: star, dev_feedback_text: null,
       dev_labeled_at: new Date().toISOString(), dev_by: session.uid, batch_id: null };
   };
@@ -500,13 +519,14 @@ function open(id) {
   };
   note.addEventListener('input', changed);
   scoreIn.onkeydown = (e) => { if (e.key === 'Enter') saveBtn.click(); };
-  scoreIn.oninput = () => { updateHint(); changed(); };
+  scoreIn.oninput = () => { exact = true; syncGrades(); updateHint(); changed(); };
+  syncGrades();
   updateHint();
   // 기준표·피드백 목록에서 바로 채우기
   activeForm = {
     applyRubric(rb) {
       picker.set(rb.code === 'NONE' ? [] : [rb.code + (rb.sev === 'strong' ? '!' : '')], null);
-      if (rb.typical != null) scoreIn.value = String(rb.typical);
+      if (rb.typical != null) { scoreIn.value = String(rb.typical); exact = true; syncGrades(); }
       updateHint(); changed(); scoreIn.focus(); scoreIn.select();
     },
     refresh() { updateHint(); },

@@ -24,10 +24,11 @@ async function call(path, { method = 'POST', body, token, headers = {} } = {}) {
 
 // ---------- 학생·교사: 보내기 ----------
 // 획: [[x, y, t], ...] (t는 첫 획을 시작한 뒤 지난 밀리초)
-export function submitAttempt({ writer, ch, device, strokes, engineScore, engineIssues, engineVersion }) {
+// motor: 이 글씨를 쓸 때 운동 지원이 켜져 있었는지(엔진이 운동 조절 문제를 너그럽게 봄)
+export function submitAttempt({ writer, ch, device, strokes, engineScore, engineIssues, engineVersion, motor = false }) {
   return call('/rest/v1/rpc/hw_submit', { body: {
     p_writer: writer, p_ch: ch, p_device: device, p_strokes: strokes,
-    p_engine_score: engineScore, p_engine_issues: engineIssues, p_engine_version: engineVersion,
+    p_engine_score: engineScore, p_engine_issues: engineIssues, p_engine_version: engineVersion, p_motor: !!motor,
   } });
 }
 export function teacherLabel({ id, writer, score, issues }) {

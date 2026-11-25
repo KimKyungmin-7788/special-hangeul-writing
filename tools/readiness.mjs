@@ -36,7 +36,7 @@ const DEVICES = ['finger', 'pen', 'board'];
 
 // 시험 학습: 엔진 측정값으로 교사 점수를 맞추는 릿지 회귀(가장 단순한 학습모델). 앱에는 넣지 않고 비교만 한다
 function features(s) {
-  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport });
   const m = Object.entries(r.measures).filter(([, v]) => typeof v === 'number').sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
   return { engine: r.score, x: [r.score, ...m, ...DEVICES.map((d) => ((s.device || 'finger') === d ? 1 : 0))] };
 }

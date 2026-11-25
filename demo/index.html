@@ -344,6 +344,7 @@
   .settings hr { width: 100%; border: 0; border-top: 1px dashed var(--line); margin: 8px 0 4px; }
   @media (max-width: 480px) { .app-head { flex-wrap: nowrap; gap: 6px; } .brand { font-size: 21px; white-space: nowrap; } button.who { padding: 2px 8px; white-space: nowrap; } .head-btn { white-space: nowrap; padding: 4px 8px; } }
   .box-cap, .box-cap .tag { white-space: nowrap; }
+  .settings .motor-row { align-items: flex-start; } .settings .motor-row small { color: var(--muted); font-size: 12px; line-height: 1.4; }
   .set-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
   .set-links button, .set-links a { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; }
   /* ================= 자리 고정 (2026-11-23) =================
@@ -452,6 +453,7 @@
     <label class="toggle"><input type="checkbox" id="guideOn" checked> 안내선</label>
     <label class="toggle"><input type="checkbox" id="guided"> 획순 지키기 (틀린 획은 바로 지움)</label>
     <label class="toggle"><input type="checkbox" id="autoNext" checked> S를 받으면 안내 지우고 다음 글자로</label>
+    <label class="toggle motor-row"><input type="checkbox" id="motorOn"> <span>운동 지원 <small id="motorWho"></small><br><small>손 조절이 어려운 학생: 끊어 씀·넘어감·안 닿음을 너그럽게 봐요. 쓰는 사람마다 따로 기억해요.</small></span></label>
     <label class="toggle">자동 제출 <input type="number" id="autoSec" min="0" max="10" step="0.5" value="2" inputmode="decimal"> 초 (0이면 끔)</label>
     <div class="set-grp">소리</div>
     <label class="toggle"><input type="checkbox" id="voiceOn" checked> 소리로 알려 주기</label>

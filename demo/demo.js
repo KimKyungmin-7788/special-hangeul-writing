@@ -570,11 +570,11 @@ function score() {
   cancelAuto();
   // 캐러셀에서 불러온 글씨를 보고 있을 때는 새 기록을 만들지 않고 그 결과만 다시 보여 준다
   if (viewing) { const a = attempts.find((x) => x.id === viewing); if (a) showResult(a.result, a); return; }
-  const device = $('device').value;
-  const r = evaluate(current, strokes, { device });
+  const device = $('device').value, motor = $('motorOn').checked;
+  const r = evaluate(current, strokes, { device, motorSupport: motor });
   best[current] = Math.max(best[current] ?? 0, r.score);
   if (!strokes.length) { showResult(r, null); return; }
-  const a = { id: ++attemptSeq, char: current, strokes, device, result: r, n: attempts.filter((x) => x.char === current).length + 1 };
+  const a = { id: ++attemptSeq, char: current, strokes, device, motor, result: r, n: attempts.filter((x) => x.char === current).length + 1 };
   a.serverId = send(a); // 학생·교사로 접속했으면 서버에 보낸다(둘러보기는 보내지 않음)
   attempts.push(a);
   showResult(r, a);
@@ -687,7 +687,7 @@ function packStrokes(st) {
 function send(a) {
   if (!writer) return null;
   const item = { writer, ch: a.char, device: a.device, strokes: packStrokes(a.strokes),
-    engineScore: a.result.score, engineIssues: a.result.issues.map((i) => i.code), engineVersion: ENGINE_VERSION };
+    engineScore: a.result.score, engineIssues: a.result.issues.map((i) => i.code), engineVersion: ENGINE_VERSION, motor: !!a.motor };
   return submitAttempt(item).then((id) => { flushOutbox(); return id; })
     .catch((e) => { if (!/bad_writer|too_large/.test(e.message)) { outbox.push(item); saveOutbox(); } return null; })
     .finally(renderWho);
@@ -702,8 +702,20 @@ async function flushOutbox() {
 }
 window.addEventListener('online', flushOutbox);
 
+// 운동 지원은 쓰는 사람(작성자 코드)마다 이 기기에 따로 기억한다. 공용 기기에서 학생이 바뀌어도 각자 설정이 따라온다
+const motorKey = () => `hw-motor:${writer || 'guest'}`;
+function loadMotor() {
+  let on = false; try { on = localStorage.getItem(motorKey()) === '1'; } catch {}
+  $('motorOn').checked = on;
+  $('motorWho').textContent = `(${writer || '둘러보기'})`;
+}
+$('motorOn').addEventListener('change', () => {
+  try { localStorage.setItem(motorKey(), $('motorOn').checked ? '1' : '0'); } catch {}
+  renderWho();
+});
 function renderWho() {
-  $('whoName').textContent = writer || '둘러보기';
+  if ($('motorWho').textContent !== `(${writer || '둘러보기'})`) loadMotor();
+  $('whoName').textContent = (writer || '둘러보기') + ($('motorOn').checked ? ' · 운동 지원' : '');
   $('whoSync').textContent = !writer ? '(저장 안 함)' : outbox.length ? `· 보내기 대기 ${outbox.length}개` : '';
 }
 // 쓰는 사람이 바뀌면 이전 사람의 결과·표본 칸을 지운다

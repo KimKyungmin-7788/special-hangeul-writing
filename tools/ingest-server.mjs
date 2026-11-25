@@ -16,6 +16,7 @@ for (const r of rows) {
   if (r.dev_score == null) continue;
   const s = {
     id: r.id, char: r.ch, device: r.device, teacherScore: r.dev_score, teacherIssues: r.dev_issues ?? null,
+    grade: r.dev_grade || undefined, exact: r.dev_exact ?? undefined, motorSupport: r.motor_support || undefined,
     feedback: r.dev_feedback || undefined, feedbackText: r.dev_feedback_text || undefined, note: r.dev_note || undefined,
     writer: r.writer, engineScoreAtSave: r.engine_score, engineIssuesAtSave: r.engine_issues, engineVersion: r.engine_version,
     labeledAt: r.dev_labeled_at, batch: r.batch_id,

@@ -11,7 +11,7 @@ const ENABLE_AT = 15;                      // 새 후보가 이만큼 쌓이면 
 
 const S = JSON.parse(fs.readFileSync(new URL('../test/server-samples/labeled.json', import.meta.url), 'utf8')).samples;
 const rows = S.filter((s) => Number.isFinite(s.teacherScore) && migrateLabels(s.teacherIssues)?.[0] !== 'EXCLUDE').map((s) => {
-  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device });
+  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device, motorSupport: !!s.motorSupport });
   return { ch: s.char, t: s.teacherScore, e: r.score, cand: !!r.measures.mashCandidate, fresh: String(s.labeledAt) > BASE_UNTIL,
     m: `길이 ${r.measures.mashLenRatio.toFixed(2)}배 · 엇갈림 ${r.measures.mashCrossings} · 꺾임 +${r.measures.mashTurnExcess.toFixed(1)}` };
 });

@@ -9,7 +9,7 @@ const rows = [];
 for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort()) {
   const data = JSON.parse(fs.readFileSync(new URL(f, dir), 'utf8'));
   for (const [k, s] of (data.samples || [data]).entries()) {
-    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+    const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport });
     rows.push({
       id: `${f}#${k}`, char: s.char, device: s.device || 'finger',
       teacherScore: s.teacherScore, engineScore: r.score,

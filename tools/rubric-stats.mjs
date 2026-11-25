@@ -10,7 +10,7 @@ const load = (dir) => fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.e
   .flatMap((f) => { const d = JSON.parse(fs.readFileSync(dir + f, 'utf8')); return (d.samples || [d]).map((s) => ({ ...s, src: dir + f })); }) : [];
 const all = [...load('test/samples/'), ...load('test/server-samples/')].filter((s) => !s.disputed);
 const rows = all.map((s) => {
-  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger' });
+  const r = evaluate(s.char, s.strokes.map((st) => st.map(([x, y]) => ({ x, y }))), { device: s.device || 'finger', motorSupport: !!s.motorSupport });
   // 기준표 줄: 교사가 고른 항목이 있으면 그것으로, 없으면 엔진이 찾은 항목으로(평가 항목 기준, src/labels.js)
   const labels = migrateLabels(s.teacherIssues) ?? engineToLabels(r.issues);
   const label = labels[0] === 'EXCLUDE' ? 'EXCLUDE' : (rubricFor(labels)?.name || '문제 없음');
