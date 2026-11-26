@@ -765,7 +765,7 @@ const gate = (() => {
     update();
   }; });
   $('gNum').oninput = update; $('gTname').oninput = update;
-  const close = () => { $('gate').hidden = true; renderWho(); renderResultEmpty(); flushOutbox(); if (group === 'prep') prep.choose(prep.item.id); }; // 쓰기 준비 진행은 쓰는 사람마다 따로
+  const close = () => { $('gate').hidden = true; renderWho(); renderResultEmpty(); flushOutbox(); restoreTab(); if (group === 'prep') prep.choose(prep.item.id); }; // 탭·쓰기 준비 진행은 쓰는 사람마다 따로
   $('gGo').onclick = () => {
     const c = code(); if (!c || !isWriter(c)) return;
     writer = c; try { localStorage.setItem(WRITER_KEY, c); } catch {}
@@ -890,14 +890,21 @@ function setMode(isPrep) {
   if (isPrep) { cancelAuto(); cancelAdvance(); $('result').replaceChildren(); toast(''); prep.fit(prepWidth()); prep.renderSteps(); prep.reset(); }
 }
 
-document.querySelectorAll('.tab').forEach((t) => {
-  t.onclick = () => {
-    const g = t.dataset.group;
-    if (g === 'prep') { group = 'prep'; setMode(true); renderGrid(); return; }
-    if (group === 'prep') setMode(false);
-    group = g; chars = listChars(group); select(chars[0]);
-  };
-});
+// 탭 바꾸기. 마지막에 본 탭은 쓰는 사람(작성자 코드)마다 이 기기에 기억해, 다음에 열면 그 탭으로 시작한다
+const TABS = ['prep', 'consonant', 'vowel', 'syllable'];
+const tabKey = () => `hw-tab:${writer || 'guest'}`;
+function openTab(g, remember = true) {
+  if (!TABS.includes(g)) g = 'consonant';
+  if (remember) { try { localStorage.setItem(tabKey(), g); } catch {} }
+  if (g === 'prep') { if (group !== 'prep') { group = 'prep'; setMode(true); } renderGrid(); return; }
+  if (group === 'prep') setMode(false);
+  group = g; chars = listChars(group); select(chars[0]);
+}
+function restoreTab() {
+  let g = null; try { g = localStorage.getItem(tabKey()); } catch {}
+  openTab(g || 'consonant', false);
+}
+document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => openTab(t.dataset.group); });
 
 function select(ch) {
   cancelAuto(); cancelAdvance();
@@ -996,6 +1003,7 @@ renderWho();
 if (!writer) gate.open(); else flushOutbox();
 syncModel();
 setPadSize(padWanted, false);
+if (writer) restoreTab(); // 둘러보기로 시작하면 고르기 화면을 닫을 때 정한다
 
 // 브라우저 콘솔에서 자동 확인할 때 쓰는 손잡이
 window.__hw = { evaluate, getTemplate, setStrokes: (s) => { strokes = s; redraw(); }, score, select };
