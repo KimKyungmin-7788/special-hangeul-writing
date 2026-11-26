@@ -416,3 +416,21 @@ test('뭉갬 후보: 측정값만 남기고 점수는 그대로', () => {
   const m = evaluate('ㅂ', scribble, { device: 'finger', motorSupport: true });
   assert.equal(m.measures.mashCandidate, 0, '운동 지원 학생은 후보로 보지 않음');
 });
+
+// 쓰기 준비 21종(src/prewrite.js): 모양이 활동지 안에 있고, 그대로 따라 그리면 어느 방향이든 별 3개
+test('쓰기 준비: 21종 모양과 별', async () => {
+  const { ITEMS, parsePath, observe, SHEET_W } = await import('../src/prewrite.js');
+  assert.equal(ITEMS.length, 21);
+  assert.deepEqual(ITEMS.map((i) => i.id), Array.from({ length: 21 }, (_, k) => String(k + 5).padStart(2, '0')));
+  for (const it of ITEMS) {
+    const S = parsePath(it.d);
+    for (const p of S.flatMap((s) => s.pts)) assert.ok(p.x >= 0 && p.x <= SHEET_W && p.y >= 0 && p.y <= 1, `${it.id} 활동지 밖`);
+    assert.equal(observe(it, S.map((s) => s.pts)).stars, 3, `${it.id} 정방향`);
+    assert.equal(observe(it, S.map((s) => [...s.pts].reverse())).stars, 3, `${it.id} 반대 방향`);
+    const moved = S.map((s) => s.pts.map((p) => ({ x: p.x * 0.6 + 0.3, y: p.y * 0.6 + 0.2 })));
+    assert.equal(observe(it, moved, { tol: 0.11, align: true }).stars, 3, `${it.id} 보고 그리기(자리·크기 달라도)`);
+    assert.ok(observe(it, []).stars === 0);
+  }
+  const circle = ITEMS.find((i) => i.id === '10'), half = parsePath(circle.d)[0].pts.slice(0, 12);
+  assert.ok(observe(circle, [half]).stars < 3, '반만 그린 원은 별 3개가 아님');
+});

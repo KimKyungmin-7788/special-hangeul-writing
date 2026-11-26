@@ -3,6 +3,7 @@ import { evaluate, checkStroke, listChars, getTemplate } from '../src/engine.js'
 import { feedbackKo, speechKo, explainKo } from '../src/feedback-ko.js';
 import { ENGINE_VERSION } from '../src/engine.js';
 import { submitAttempt, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
+import { createPrep } from './prep.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
@@ -631,7 +632,7 @@ function placeNote() {
   note.classList.remove('phone');
   if (innerWidth >= 1000) { note.classList.remove('left'); note.style.top = ''; return; } // 넓은 화면은 오른쪽 포스트잇 칸(index.html)
   // 두 칸은 가운데 정렬이므로 오른쪽 빈자리 = (종이 줄 너비 − 두 칸 너비) / 2
-  const free = ($('padRow').clientWidth - (2 * padSize + PAD_GAP)) / 2;
+  const free = (document.querySelector('.paper-col').clientWidth - (2 * padSize + PAD_GAP)) / 2;
   const left = free < 218;
   note.classList.toggle('left', left);
   note.style.top = left ? `${side.offsetTop + side.offsetHeight + 14}px` : '';
@@ -763,7 +764,7 @@ const gate = (() => {
     update();
   }; });
   $('gNum').oninput = update; $('gTname').oninput = update;
-  const close = () => { $('gate').hidden = true; renderWho(); renderResultEmpty(); flushOutbox(); };
+  const close = () => { $('gate').hidden = true; renderWho(); renderResultEmpty(); flushOutbox(); if (group === 'prep') prep.choose(prep.item.id); }; // 쓰기 준비 진행은 쓰는 사람마다 따로
   $('gGo').onclick = () => {
     const c = code(); if (!c || !isWriter(c)) return;
     writer = c; try { localStorage.setItem(WRITER_KEY, c); } catch {}
@@ -792,6 +793,13 @@ const round3 = (v) => Math.round(v * 1000) / 1000;
 // ---------- 글자 목록 ----------
 function renderGrid() {
   const grid = $('charGrid');
+  if (group === 'prep') {
+    prep.renderItems(grid);
+    $('progress').textContent = prep.progressText(); $('groupName').textContent = '쓰기 준비';
+    document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', t.dataset.group === group));
+    return;
+  }
+  grid.classList.remove('prep-grid');
   grid.replaceChildren();
   for (const ch of chars) {
     const b = document.createElement('button');
@@ -812,8 +820,73 @@ function renderGrid() {
   document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', t.dataset.group === group));
 }
 
+// ---------- 쓰기 준비(선 긋기·형태 21종) ----------
+// 화면은 demo/prep.js. 여기서는 탭 전환과 공통 기능(소리·결과 포스트잇·설정)만 이어 준다.
+// 쓰기 준비 글씨는 아직 서버에 보내지 않는다(어느 걸음인지 담을 서버 칸이 없음)
+const prep = createPrep({
+  writer: () => writer,
+  penOnly: () => $('penOnly').checked,
+  autoNext: () => $('autoNext').checked,
+  toast: (m) => toast(m),
+  voiceStop: () => voice.stop(),
+  scratch: { start: () => scratch.start(), speed: (v) => scratch.speed(v), stop: () => scratch.stop() },
+  ding: () => prepDing(),
+  clearNote: () => $('result').replaceChildren(),
+  refreshGrid: () => { if (group === 'prep') renderGrid(); },
+  showResult: (r) => showPrepResult(r),
+});
+const PREP_STEP = ['통로 안에서', '점선 따라', '점 잇기', '보고 그리기'];
+function showPrepResult({ item, step, o, say }) {
+  const el = $('result'); el.replaceChildren();
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'note-close';
+  close.textContent = '✕'; close.setAttribute('aria-label', '결과 닫기'); close.onclick = () => el.replaceChildren();
+  const head = document.createElement('div'); head.className = 'score';
+  head.innerHTML = `<span class="stars" aria-label="별 ${o.stars}개">${'★'.repeat(o.stars)}${'☆'.repeat(3 - o.stars)}</span>`;
+  const msg = document.createElement('div'); msg.className = 'say';
+  const txt = document.createElement('span'); txt.textContent = say; msg.append(txt);
+  if (voice.available()) { const again = document.createElement('button'); again.type = 'button'; again.textContent = '🔊 다시 듣기'; again.onclick = () => voice.say(say); msg.append(again); }
+  el.append(close, head, msg);
+  if (writer && isTeacher(writer)) {
+    const det = document.createElement('details'); det.className = 'more';
+    const sum = document.createElement('summary'); sum.textContent = '자세히'; det.append(sum);
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    for (const [k, v] of [['형태(덮은 비율)', pct(o.cover)], ['경로 이탈', pct(o.stray)], ['연결(끝점·닫힘)', o.connected ? '됨' : '안 됨'], ['독립성(걸음)', `${step} · ${PREP_STEP[step - 1]}`], ['참고 점수', o.score]]) {
+      const row = document.createElement('div'); row.className = 'bar'; row.innerHTML = `<span>${k}</span><i></i><span>${v}</span>`; det.append(row);
+    }
+    el.append(det);
+  }
+  placeNote();
+  if ($('voiceOn').checked) voice.say(say);
+  if (o.stars === 3) heart(1);
+}
+// 데려다주기 도착 소리: 짧은 '띵동'
+function prepDing() {
+  if (!$('sfxOn').checked) return;
+  const ac = scratch.ctx(); if (!ac) return;
+  const t = ac.currentTime + 0.01;
+  [[784, 0], [1047, 0.11]].forEach(([f, d]) => {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.35, t + d + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35);
+    o.connect(g).connect(ac.destination); o.start(t + d); o.stop(t + d + 0.4);
+  });
+}
+// 활동지는 종이 줄 너비를 쓰되 너무 크지 않게(가로 760px까지)
+const prepWidth = () => Math.min(document.querySelector('.paper-col').clientWidth || 2 * padSize + PAD_GAP, 760);
+function setMode(isPrep) {
+  document.body.classList.toggle('prep-mode', isPrep);
+  $('prepWrap').hidden = !isPrep;
+  $('doneBtn').textContent = isPrep ? '다 그렸어요' : '다 썼어요';
+  $('animBtn').textContent = isPrep ? '▶ 그리는 법' : '▶ 획순 보기';
+  if (isPrep) { cancelAuto(); cancelAdvance(); $('result').replaceChildren(); toast(''); prep.fit(prepWidth()); prep.renderSteps(); prep.reset(); }
+}
+
 document.querySelectorAll('.tab').forEach((t) => {
-  t.onclick = () => { group = t.dataset.group; chars = listChars(group); select(chars[0]); };
+  t.onclick = () => {
+    const g = t.dataset.group;
+    if (g === 'prep') { group = 'prep'; setMode(true); renderGrid(); return; }
+    if (group === 'prep') setMode(false);
+    group = g; chars = listChars(group); select(chars[0]);
+  };
 });
 
 function select(ch) {
@@ -826,13 +899,14 @@ function select(ch) {
 
 function toast(msg) { $('toast').textContent = msg; }
 
-$('animBtn').onclick = animate;
-$('clearBtn').onclick = () => { cancelAuto(); cancelAdvance(); leaveViewing(); strokes = []; toast(''); redraw(); };
-$('doneBtn').onclick = score;
+$('animBtn').onclick = () => (group === 'prep' ? prep.demo() : animate());
+$('clearBtn').onclick = () => { if (group === 'prep') { toast(''); prep.clear(); return; } cancelAuto(); cancelAdvance(); leaveViewing(); strokes = []; toast(''); redraw(); };
+$('doneBtn').onclick = () => (group === 'prep' ? prep.done() : score());
+for (const id of ['prepChar', 'prepLane', 'prepDash']) $(id).addEventListener('change', () => { prep.draw(); prep.renderSteps(); });
 $('guideOn').onchange = redraw;
 // 펜슬만 받기·입력 기기는 이 기기(브라우저)에 기억해 둔다
 $('voiceOn').addEventListener('change', () => { if (!$('voiceOn').checked) voice.stop(); });
-for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn', 'autoNext', 'sfxOn']) {
+for (const id of ['penOnly', 'device', 'autoSec', 'voiceOn', 'autoNext', 'sfxOn', 'prepChar', 'prepLane', 'prepDash']) {
   const el = $(id), key = 'hw-pref-' + id;
   try { const v = localStorage.getItem(key); if (v !== null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; } } catch {}
   el.addEventListener('change', () => { try { localStorage.setItem(key, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); } catch {} });
@@ -876,6 +950,7 @@ function setPadSize(px, save = true) {
   fitCanvas();
   fitModel();
   placeNote();
+  if (group === 'prep') prep.fit(prepWidth());
   if (save) { try { localStorage.setItem(PAD_KEY, (padSize / PX_PER_CM).toFixed(2)); } catch {} }
 }
 let padDrag = null;
