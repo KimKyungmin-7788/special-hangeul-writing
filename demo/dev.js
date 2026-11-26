@@ -1,6 +1,8 @@
 // 글씨 채점실(개발자 전용): 학생·교사가 보낸 글씨를 쓴 순서·빠르기 그대로 다시 보고, 개발자 점수·문제·메모를 붙인다.
 // 앱 채점(엔진)은 개발자 점수를 저장한 뒤에 보인다(먼저 보면 점수가 끌려가므로). '앱 채점 먼저 보기'로 바꿀 수 있다.
 import { evaluate, getTemplate, explainScore } from '../src/engine.js';
+import { ITEM_BY_ID, STEPS as PREP_STEPS, SHEET_W, parsePath, observe, stepTol } from '../src/prewrite.js';
+import { itemIcon } from './prep.js';
 import { ISSUE_NAMES_KO, speechKo, speechCase } from '../src/feedback-ko.js';
 import { LABELS, GROUPS as LABEL_GROUPS, EXCLUDE, LABEL_BY_CODE, parseLabel, labelCodes, engineToLabels, primaryLabel, migrateLabels, migrateFeedback } from '../src/labels.js';
 import { createLabelPicker } from './label-picker.js';
@@ -8,6 +10,9 @@ import { auth, isDev, listAttempts, listBatches, submitBatch, updateAttempt, del
 import { RUBRIC, RUBRIC_DATE, RUBRIC_SAMPLES, GRADES, PRECEDENTS, rubricFor } from './rubric.js';
 
 const $ = (id) => document.getElementById(id);
+// 쓰기 준비(선 긋기·형태 05~25) 글씨: 글자 칸 'P05', 걸음 prep_step. 한글 엔진 대신 src/prewrite.js로 본다
+const prepOf = (r) => (r && r.prep_step && /^P\d\d$/.test(r.ch) ? ITEM_BY_ID[r.ch.slice(1)] || null : null);
+const prepLabel = (r) => { const it = prepOf(r); return it ? `준비 ${it.id} ${it.name} · ${'①②③④'[r.prep_step - 1]} ${PREP_STEPS[r.prep_step - 1].name}` : r.ch; };
 // 등급 버튼의 대표 점수와 범위(엔진 등급 구간과 같음)
 const GRADE_REP = [['S', 95], ['A', 85], ['B', 75], ['C', 65], ['F', 30]];
 const GRADE_RANGE = { S: '90~100', A: '80~89', B: '70~79', C: '60~69', F: '0~59' };
@@ -97,7 +102,7 @@ function renderList() {
     const d = new Date(r.created_at);
     const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const b = el('button', { className: 'row', type: 'button' },
-      el('span', { className: 'ch', textContent: r.ch }),
+      prepOf(r) ? el('span', { className: 'ch prep', title: prepLabel(r) }, itemIcon(prepOf(r), 34), el('small', { textContent: prepOf(r).id })) : el('span', { className: 'ch', textContent: r.ch }),
       el('span', { className: 'meta' }, el('b', { textContent: r.writer }), el('br'), el('small', { textContent: `${when} · ${DEVICE[r.device] || r.device}` })),
       el('span', {}, r.dev_score != null ? el('span', { className: 'tag done', textContent: `채점 ${r.dev_score}` }) : (r.dev_labeled_at ? el('span', { className: 'tag', textContent: '제외' }) : el('span', { className: 'tag todo', textContent: '채점 전' })),
         r.teacher_score != null ? el('span', { className: 'tag t', textContent: `교사 ${r.teacher_score}` }) : ''));
@@ -260,10 +265,12 @@ function timeline(strokes, squeeze) {
 function drawReplay() {
   const cv = $('replay'); if (!cv || !player.data) return;
   const c = cv.getContext('2d');
-  const dpr = window.devicePixelRatio || 1, size = cv.clientWidth;
-  if (cv.width !== Math.round(size * dpr)) { cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr); }
+  // 한글은 정사각형(0~1), 쓰기 준비는 가로 활동지(가로 0~SHEET_W, 세로 0~1). 둘 다 높이를 1로 그린다
+  const prepItem = player.data.prep;
+  const dpr = window.devicePixelRatio || 1, wpx = cv.clientWidth, size = prepItem ? wpx / SHEET_W : wpx;
+  if (cv.width !== Math.round(wpx * dpr) || cv.height !== Math.round(size * dpr)) { cv.width = Math.round(wpx * dpr); cv.height = Math.round(size * dpr); }
   c.setTransform(size * dpr, 0, 0, size * dpr, 0, 0);
-  c.clearRect(0, 0, 1, 1);
+  c.clearRect(0, 0, prepItem ? SHEET_W : 1, 1);
   const line = (pts, color, w, dash) => {
     if (!pts.length) return;
     c.save(); if (dash) c.setLineDash(dash);
@@ -272,9 +279,12 @@ function drawReplay() {
     if (pts.length === 1) c.lineTo(pts[0].x + 0.001, pts[0].y);
     c.stroke(); c.restore();
   };
-  line([{ x: 0.5, y: 0 }, { x: 0.5, y: 1 }], css('--line'), 0.004, [0.015, 0.015]);
-  line([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004, [0.015, 0.015]);
-  if ($('guide')?.checked) {
+  if (!prepItem) {
+    line([{ x: 0.5, y: 0 }, { x: 0.5, y: 1 }], css('--line'), 0.004, [0.015, 0.015]);
+    line([{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }], css('--line'), 0.004, [0.015, 0.015]);
+  }
+  if (prepItem && $('guide')?.checked) parsePath(prepItem.d).forEach((s) => line(s.pts, css('--guide'), 0.05));
+  else if ($('guide')?.checked) {
     const tpl = getTemplate(player.data.ch);
     if (tpl) {
       tpl.strokes.forEach((s) => line(s.points, css('--guide'), 0.07));
@@ -338,7 +348,7 @@ function open(id) {
   const d = $('detail'); d.replaceChildren();
   const when = new Date(r.created_at).toLocaleString('ko-KR');
   d.append(el('div', { className: 'head' },
-    el('b', { textContent: r.ch }), el('span', { textContent: r.writer }),
+    el('b', { textContent: prepLabel(r) }), el('span', { textContent: r.writer }),
     el('span', { className: 'muted', textContent: `${when} · ${DEVICE[r.device] || r.device} · ${r.strokes.length}획 · 앱 채점 v${r.engine_version || '?'}${r.motor_support ? ' · 운동 지원' : ''}` })));
 
   // 왼쪽: 다시 보기
@@ -357,7 +367,7 @@ function open(id) {
   try { guideOn = localStorage.getItem('hw-dev-guide') !== '0'; } catch {}
   const guide = el('input', { type: 'checkbox', id: 'guide', checked: guideOn });
   left.append(
-    el('canvas', { id: 'replay' }),
+    el('canvas', { id: 'replay', style: prepOf(r) ? 'aspect-ratio: 118 / 58' : '' }),
     el('progress', { id: 'prog', max: 1, value: 0 }),
     el('div', { className: 'time', id: 'ptime' }),
     el('div', { className: 'ctrls' },
@@ -428,6 +438,18 @@ function open(id) {
     reveal.replaceChildren();
     if (r.dev_score == null && !$('showEngine').checked) {
       reveal.append(el('span', { className: 'hidden-note', textContent: '앱 채점은 내 점수를 저장하면 보여요.' }));
+      return;
+    }
+    const pItem = prepOf(r);
+    if (pItem) { // 쓰기 준비: 별과 관찰값만 견준다(평가 항목·학생에게 할 말 비교 없음)
+      const o = observe(pItem, r.strokes.map((s) => s.map(([x, y]) => ({ x, y }))), { tol: stepTol(r.prep_step), step: r.prep_step, align: r.prep_step === 4 });
+      const col = (title, score, sub) => el('div', { className: 'vs-col' }, el('div', { className: 'vs-t', textContent: title }), el('div', { className: 'vs-s', textContent: score }), el('div', { className: 'vs-i', textContent: sub }));
+      reveal.append(el('div', { className: 'vs' },
+        col('내 채점', r.dev_score != null ? `${r.dev_score}점` : '—', r.dev_grade ? `${r.dev_grade} 등급` : ''),
+        col('앱 채점', `${'★'.repeat(o.stars)}${'☆'.repeat(3 - o.stars)}`, `참고 ${o.score}점`)));
+      const pct = (v) => `${Math.round(v * 100)}%`;
+      reveal.append(el('div', { className: 'vs-note', textContent: `덮은 비율 ${pct(o.cover)} · 경로 이탈 ${pct(o.stray)} · 연결 ${o.connected ? '됨' : '안 됨'} · ${PREP_STEPS[r.prep_step - 1].name}` }));
+      if (r.dev_score != null) { const diff = o.score - r.dev_score; reveal.append(el('div', { className: Math.abs(diff) <= 10 ? 'v-ok' : 'v-warn', textContent: Math.abs(diff) <= 10 ? `✓ 참고 점수와 비슷해요(${Math.abs(diff)}점 차이).` : `! 참고 점수가 ${Math.abs(diff)}점 ${diff > 0 ? '높아요' : '낮아요'}.` })); }
       return;
     }
     const now = evaluate(r.ch, r.strokes.map((s) => s.map(([x, y]) => ({ x, y }))), { device: r.device, motorSupport: !!r.motor_support });
@@ -547,7 +569,8 @@ function open(id) {
   };
 
   d.append(el('div', { className: 'detail' }, left, form));
-  player.data = { ch: r.ch, tl: timeline(r.strokes, true) };
+  player.data = { ch: r.ch, prep: prepOf(r), tl: timeline(r.strokes, true) };
+  if (prepOf(r)) { chips.hidden = true; hint.hidden = true; form.querySelector('h3:nth-of-type(2)')?.setAttribute('hidden', ''); } // 평가 항목은 한글용
   player.t = 0;
   requestAnimationFrame(() => { drawReplay(); play(); });
   if (r.dev_score == null) scoreIn.focus({ preventScroll: true });

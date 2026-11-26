@@ -46,6 +46,12 @@ export const STEPS = [
   { n: 4, name: '보고 그리기', short: '보고 그리기' },
 ];
 
+export const PREP_VERSION = 'prep-0.1';
+// 걸음별 허용 폭(활동지 높이 기준). 통로는 선생님 설정(넓게/좁게)
+export function stepTol(step, lane = 'wide') { return step === 1 ? (lane === 'narrow' ? 0.055 : 0.085) : step === 4 ? 0.11 : 0.09; }
+// 서버 engine_issues에 남길 관찰 코드
+export function obsCodes(o) { return [o.connected ? null : 'NOT_CONNECTED', o.stray > 0.2 ? 'STRAY' : null, o.cover < 0.85 ? 'LOW_COVER' : null].filter(Boolean); }
+
 export const VIEW = { x: -4, y: -4, w: 118, h: 58 };
 export const SHEET_W = VIEW.w / VIEW.h;
 const U = (x, y) => ({ x: (x - VIEW.x) / VIEW.h, y: (y - VIEW.y) / VIEW.h });

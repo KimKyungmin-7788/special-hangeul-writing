@@ -12,8 +12,21 @@ const out = new URL('../test/server-samples/labeled.json', import.meta.url);
 const prev = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')).samples : [];
 const byId = new Map(prev.map((s) => [s.id, s]));
 let added = 0, updated = 0;
+// 쓰기 준비(글자 칸 'P05', prep_step 있음)는 한글 표본과 섞지 않고 test/server-samples/prewrite.json에 따로 모은다
+const prepOut = new URL('../test/server-samples/prewrite.json', import.meta.url);
+const prepPrev = fs.existsSync(prepOut) ? JSON.parse(fs.readFileSync(prepOut, 'utf8')).samples : [];
+const prepById = new Map(prepPrev.map((s) => [s.id, s]));
+let prepAdded = 0;
 for (const r of rows) {
   if (r.dev_score == null) continue;
+  if (r.prep_step) {
+    if (!prepById.has(r.id)) prepAdded++;
+    prepById.set(r.id, { id: r.id, item: r.ch.slice(1), step: r.prep_step, teacherScore: r.dev_score, grade: r.dev_grade || undefined, exact: r.dev_exact ?? undefined,
+      note: r.dev_note || undefined, writer: r.writer, engineScoreAtSave: r.engine_score, obsAtSave: r.engine_issues, engineVersion: r.engine_version,
+      motorSupport: r.motor_support || undefined, labeledAt: r.dev_labeled_at, batch: r.batch_id,
+      strokes: r.strokes.map((st) => st.map(([x, y]) => [x, y])), times: r.strokes.map((st) => st.map((p) => p[2] ?? 0)) });
+    continue;
+  }
   const s = {
     id: r.id, char: r.ch, device: r.device, teacherScore: r.dev_score, teacherIssues: r.dev_issues ?? null,
     grade: r.dev_grade || undefined, exact: r.dev_exact ?? undefined, motorSupport: r.motor_support || undefined,
@@ -28,4 +41,8 @@ for (const r of rows) {
 }
 const samples = [...byId.values()].sort((a, b) => String(a.labeledAt).localeCompare(String(b.labeledAt)));
 fs.writeFileSync(out, `{"version":1,"source":"server","updatedAt":${JSON.stringify(new Date().toISOString())},"samples":[\n${samples.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`);
-console.log(JSON.stringify({ added, updated, total: samples.length }));
+if (prepById.size) {
+  const ps = [...prepById.values()].sort((a, b) => String(a.labeledAt).localeCompare(String(b.labeledAt)));
+  fs.writeFileSync(prepOut, `{"version":1,"source":"server","kind":"prewrite","updatedAt":${JSON.stringify(new Date().toISOString())},"samples":[\n${ps.map((s) => JSON.stringify(s)).join(',\n')}\n]}\n`);
+}
+console.log(JSON.stringify({ added, updated, total: samples.length, prewrite: { added: prepAdded, total: prepById.size } }));

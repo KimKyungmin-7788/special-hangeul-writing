@@ -4,6 +4,7 @@ import { feedbackKo, speechKo, explainKo } from '../src/feedback-ko.js';
 import { ENGINE_VERSION } from '../src/engine.js';
 import { submitAttempt, isWriter, isTeacher, SCHOOL, SCHOOL_NAME } from './server.js';
 import { createPrep } from './prep.js';
+import { PREP_VERSION } from '../src/prewrite.js';
 
 const $ = (id) => document.getElementById(id);
 const pad = $('pad'), ctx = pad.getContext('2d');
@@ -834,6 +835,15 @@ const prep = createPrep({
   clearNote: () => $('result').replaceChildren(),
   refreshGrid: () => { if (group === 'prep') renderGrid(); },
   showResult: (r) => showPrepResult(r),
+  // 쓰기 준비 글씨 보내기(둘러보기는 보내지 않음). 끊기면 한글 글씨와 같은 보내기 대기열에 넣는다
+  send: ({ ch, step, strokes: st, score: sc, issues }) => {
+    if (!writer) return;
+    const item = { writer, ch, device: $('device').value, strokes: packStrokes(st.slice(-30)), engineScore: sc, engineIssues: issues,
+      engineVersion: PREP_VERSION, motor: $('motorOn').checked, prepStep: step };
+    submitAttempt(item).then(() => flushOutbox())
+      .catch((e) => { if (!/bad_writer|too_large/.test(e.message)) { outbox.push(item); saveOutbox(); } })
+      .finally(renderWho);
+  },
 });
 const PREP_STEP = ['통로 안에서', '점선 따라', '점 잇기', '보고 그리기'];
 function showPrepResult({ item, step, o, say }) {

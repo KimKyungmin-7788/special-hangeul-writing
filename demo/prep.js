@@ -2,8 +2,8 @@
 // - 가로로 긴 활동지 한 장(쓰기 칸 + 시범 칸 자리)에 그린다
 // - 4걸음: 통로 안에서 → 점선 따라 → 점 잇기 → 보고 그리기. 별 3개면 다음 걸음, 4걸음을 마치면 다음 활동
 // - 데려다주기: 획의 시작점에 캐릭터, 끝점에 목표. 펜으로 끌고 가면 따라오고, 닿으면 반가워한다(설정에서 끌 수 있음)
-// - 지금은 서버에 보내지 않는다(어느 걸음인지 담을 칸이 서버에 없음). 진행은 쓰는 사람마다 이 기기에 기억
-import { ITEMS, ITEM_BY_ID, AREAS, STEPS, SHEET_W, parsePath, resample, keyPoints, observe, sayFor } from '../src/prewrite.js';
+// - 다 그리면 서버에 보낸다(글자 칸 'P05', 걸음 prep_step). 진행은 쓰는 사람마다 이 기기에도 기억
+import { ITEMS, ITEM_BY_ID, AREAS, STEPS, SHEET_W, parsePath, resample, keyPoints, observe, sayFor, stepTol, obsCodes } from '../src/prewrite.js';
 
 const ARRIVE_COVER = 0.75; // 이만큼 따라 그린 뒤 끝점에 닿아야 '도착'(지름길로 바로 가지 못하게)
 
@@ -87,7 +87,8 @@ export function createPrep(api) {
   const progress = () => { try { return JSON.parse(localStorage.getItem(progKey()) || '{}'); } catch { return {}; } };
   const saveProgress = (p) => { try { localStorage.setItem(progKey(), JSON.stringify(p)); } catch {} };
   const charOn = () => $('prepChar').checked;
-  const tol = () => (step === 1 ? ($('prepLane').value === 'narrow' ? 0.055 : 0.085) : step === 4 ? 0.11 : 0.09);
+  const tol = () => stepTol(step, $('prepLane').value);
+  let t0 = 0; // 이번 활동지의 첫 획을 시작한 시각(쓴 시각을 밀리초로 남김)
   const pair = (k) => PAIRS[(ITEMS.indexOf(item) + k) % PAIRS.length];
   const ends = (k) => { const p = target[k].pts; const a = p[0], b = p[p.length - 1]; return flip[k] ? [b, a] : [a, b]; };
 
@@ -194,7 +195,7 @@ export function createPrep(api) {
   const progressText = () => { const p = progress(); return `${ITEMS.filter((it) => (p[it.id] || 0) >= 4).length}/${ITEMS.length}`; };
 
   // ---------- 그리기 ----------
-  const toPt = (e) => { const r = cv.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * SHEET_W, y: (e.clientY - r.top) / r.height }; };
+  const toPt = (e) => { const r = cv.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * SHEET_W, y: (e.clientY - r.top) / r.height, t: Math.max(0, Math.round((e.timeStamp || performance.now()) - t0)) }; };
   const near = (p, q, d) => Math.hypot(p.x - q.x, p.y - q.y) <= d;
   function coverOf(k) {
     const ink = [...strokes, ...(drawing ? [drawing] : [])].filter((s) => s.length > 1).flatMap((s) => resample(s, 0.015));
@@ -206,6 +207,7 @@ export function createPrep(api) {
     if (api.penOnly() && e.pointerType !== 'pen') return;
     e.preventDefault(); clearTimeout(autoTimer); clearTimeout(advanceTimer); api.voiceStop();
     pointer = e.pointerId; try { cv.setPointerCapture(e.pointerId); } catch {}
+    if (!strokes.length) t0 = e.timeStamp || performance.now();
     const p = toPt(e); drawing = [p]; carry = null;
     // 시작점 가까이에서 시작하면 캐릭터를 데려간다. 반대쪽 끝에서 시작하면 그쪽을 출발점으로(방향은 정답으로 보지 않음)
     const t = tol() * 1.7;
@@ -270,6 +272,7 @@ export function createPrep(api) {
     const o = observe(item, strokes, { tol: tol(), step, align: step === 4 });
     const say = sayFor(item, o);
     api.showResult({ item, step, o, say });
+    if (strokes.length) api.send({ ch: `P${item.id}`, step, strokes, score: o.score, issues: obsCodes(o) });
     if (o.stars === 3) {
       const p = progress(); p[item.id] = Math.max(p[item.id] || 0, step); saveProgress(p); api.refreshGrid();
       advanceTimer = setTimeout(() => {

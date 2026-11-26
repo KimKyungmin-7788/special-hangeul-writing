@@ -15,7 +15,7 @@ select id, created_at, item_count from public.hw_batches where status = 'submitt
 
 ## 2. 묶음의 채점 글씨 가져오기
 ```sql
-select a.id, a.ch, a.device, a.strokes, a.dev_score, a.dev_grade, a.dev_exact, a.motor_support, a.dev_issues, a.dev_feedback, a.dev_feedback_text, a.dev_note,
+select a.id, a.ch, a.device, a.strokes, a.dev_score, a.dev_grade, a.dev_exact, a.motor_support, a.prep_step, a.dev_issues, a.dev_feedback, a.dev_feedback_text, a.dev_note,
        a.writer, a.engine_score, a.engine_issues, a.engine_version, a.dev_labeled_at, a.batch_id
 from public.hw_attempts a join public.hw_batches b on b.id = a.batch_id
 where b.status = 'submitted' and a.dev_score is not null
@@ -28,6 +28,7 @@ order by a.dev_labeled_at;
 node tools/ingest-server.mjs <rows.json 경로>
 ```
 `test/server-samples/labeled.json`에 글씨 id로 합쳐진다(다시 고친 채점은 덮어씀).
+쓰기 준비 글씨(`prep_step` 있음, 글자 칸 `P05`~`P25`)는 `test/server-samples/prewrite.json`에 따로 모인다. 한글 엔진 검사·기준표·준비 점검에는 들어가지 않고, 보고서에 개수만 적는다.
 
 ## 4. 검사·통계
 ```bash
@@ -70,7 +71,7 @@ node tools/readiness.mjs
 - 기준(`CRITERIA`)은 운영자와 합의해야만 바꾼다.
 
 ## 6. 커밋·배포하고 묶음 표시
-- `test/server-samples/labeled.json`, `demo/rubric.js`, `docs/engine-report.md`만 커밋한다. 커밋 메시지 예: `채점실 제출분 반영: 묶음 2개, 글씨 37개`
+- `test/server-samples/labeled.json`, `test/server-samples/prewrite.json`, `demo/rubric.js`, `docs/engine-report.md`만 커밋한다. 커밋 메시지 예: `채점실 제출분 반영: 묶음 2개, 글씨 37개`
 - `main`에 올린다(운영자가 이 자동 처리에 한해 main 푸시를 허락함). Vercel이 자동 배포한다.
 - 묶음 표시(커밋 해시는 짧게):
 ```sql
